@@ -1,11 +1,15 @@
 import React from 'react';
-import { LayoutDashboard } from 'lucide-react';
+import { Bitcoin, Coins } from 'lucide-react';
+
+export type AssetTab = 'crypto' | 'gold';
 
 interface DashboardLayoutProps {
     children: React.ReactNode;
+    activeTab: AssetTab;
+    onTabChange: (tab: AssetTab) => void;
 }
 
-export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, activeTab, onTabChange }) => {
     return (
         <div className="min-h-screen bg-gray-900 text-gray-100 flex">
             {/* Sidebar */}
@@ -17,10 +21,28 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2">
-                    <a href="#" className="flex items-center space-x-3 px-4 py-3 bg-gray-700/50 text-blue-400 rounded-lg">
-                        <LayoutDashboard size={20} />
-                        <span className="font-medium">Overview</span>
-                    </a>
+                    <button
+                        onClick={() => onTabChange('crypto')}
+                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                            activeTab === 'crypto'
+                                ? 'bg-gray-700/50 text-blue-400'
+                                : 'text-gray-400 hover:bg-gray-700/30 hover:text-gray-200'
+                        }`}
+                    >
+                        <Bitcoin size={20} />
+                        <span className="font-medium">Crypto</span>
+                    </button>
+                    <button
+                        onClick={() => onTabChange('gold')}
+                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                            activeTab === 'gold'
+                                ? 'bg-gray-700/50 text-yellow-400'
+                                : 'text-gray-400 hover:bg-gray-700/30 hover:text-gray-200'
+                        }`}
+                    >
+                        <Coins size={20} />
+                        <span className="font-medium">Gold</span>
+                    </button>
                 </nav>
 
                 <div className="p-4 border-t border-gray-700">

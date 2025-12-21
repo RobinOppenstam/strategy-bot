@@ -185,6 +185,17 @@ export async function getOpenTrades(sessionId: string): Promise<Trade[]> {
   });
 }
 
+// Get a single open trade for a session (for restoring state)
+export async function getOpenTrade(sessionId: string): Promise<Trade | null> {
+  return prisma.trade.findFirst({
+    where: {
+      sessionId,
+      status: TradeStatus.OPEN,
+    },
+    include: { signal: true },
+  });
+}
+
 // Get all trades for a session
 export async function getSessionTrades(sessionId: string): Promise<Trade[]> {
   return prisma.trade.findMany({

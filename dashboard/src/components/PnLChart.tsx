@@ -11,10 +11,14 @@ interface PnLChartProps {
 
 // Session colors matching the cards
 export const SESSION_COLORS: Record<string, string> = {
+    // Crypto
     'BTC 5m': '#22C55E',   // Green
     'BTC 15m': '#3B82F6',  // Blue
     'ETH 5m': '#EAB308',   // Yellow
     'ETH 15m': '#EF4444',  // Red
+    // Gold
+    'Gold 15m': '#F59E0B', // Amber/Gold
+    'Gold 5m': '#D97706',  // Darker Amber
 };
 
 type TimeFilter = '1D' | '1W' | '1M' | 'ALL';

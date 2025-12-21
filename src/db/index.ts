@@ -19,6 +19,7 @@ export {
   openTrade,
   closeTrade,
   getOpenTrades,
+  getOpenTrade,
   getSessionTrades,
   getTradesByDateRange,
   savePaperTrade,

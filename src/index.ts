@@ -10,10 +10,10 @@ import {
 } from "./db";
 
 // ============================================================================
-// BASE CONFIGURATION
+// BASE CONFIGURATION (for Crypto - MEXC)
 // ============================================================================
 
-const baseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
+const cryptoBaseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
   // MEXC API CREDENTIALS
   apiKey: process.env.MEXC_API_KEY || "",
   apiSecret: process.env.MEXC_API_SECRET || "",
@@ -24,13 +24,17 @@ const baseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
 
   // POSITION SIZING (Risk-based)
   bankrollUsd: 10000,
-  riskPercent: 0.02,
+  riskPercent: 0.02, // 2% risk per trade
+
+  // CONTRACT VALUE
+  // BTC/ETH on MEXC: 1 contract = 0.0001 of the asset
+  contractValue: 0.0001,
 
   // SWING DETECTION
   swingLength: 10,
 
   // STOP LOSS SETTINGS
-  slDistance: 50,
+  slDistance: 50, // $50 buffer from swing point
 
   // MOVING AVERAGES
   fastMAPeriod: 10,
@@ -42,22 +46,74 @@ const baseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
   // STRATEGY OPTIONS
   allowTrendContinuation: false,
   exitOnZoneChange: true,
+
+  // DATA SOURCE
+  dataSource: "mexc",
+};
+
+// ============================================================================
+// GOLD CONFIGURATION (Twelve Data)
+// ============================================================================
+
+const goldBaseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
+  // API credentials not needed for Twelve Data (uses TWELVEDATA_API_KEY env var)
+  apiKey: "",
+  apiSecret: "",
+
+  // PAPER TRADING MODE (Gold is paper-only for now)
+  paperTrading: true,
+  initialBalance: 10000,
+
+  // POSITION SIZING (Risk-based) - Lower risk for gold
+  bankrollUsd: 10000,
+  riskPercent: 0.01, // 1% risk per trade (lower than crypto)
+
+  // CONTRACT VALUE
+  // Gold: 1 contract = 1 oz
+  contractValue: 1,
+
+  // SWING DETECTION - Longer for gold's slower moves
+  swingLength: 15,
+
+  // STOP LOSS SETTINGS
+  slDistance: 3, // $3 buffer from swing point (gold ~$2600)
+
+  // MOVING AVERAGES - Longer periods for gold
+  fastMAPeriod: 12,
+  slowMAPeriod: 50,
+
+  // RISK MANAGEMENT
+  riskRewardRatio: 2.0,
+
+  // STRATEGY OPTIONS
+  allowTrendContinuation: false,
+  exitOnZoneChange: true,
+
+  // DATA SOURCE
+  dataSource: "twelvedata",
 };
 
 // ============================================================================
 // SESSION CONFIGURATIONS
 // ============================================================================
 
-const sessions: Array<{
+interface SessionConfig {
   name: string;
   symbol: string;
   timeframe: string;
   leverage: number;
-}> = [
-  { name: "BTC 15m", symbol: "BTC_USDT", timeframe: "Min15", leverage: 40 },
-  { name: "BTC 5m", symbol: "BTC_USDT", timeframe: "Min5", leverage: 40 },
-  { name: "ETH 5m", symbol: "ETH_USDT", timeframe: "Min5", leverage: 20 },
-  { name: "ETH 15m", symbol: "ETH_USDT", timeframe: "Min15", leverage: 20 },
+  baseConfig: Omit<Config, "symbol" | "timeframe" | "leverage">;
+}
+
+const sessions: SessionConfig[] = [
+  // Crypto sessions (MEXC)
+  { name: "BTC 15m", symbol: "BTC_USDT", timeframe: "Min15", leverage: 40, baseConfig: cryptoBaseConfig },
+  { name: "BTC 5m", symbol: "BTC_USDT", timeframe: "Min5", leverage: 40, baseConfig: cryptoBaseConfig },
+  { name: "ETH 5m", symbol: "ETH_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "ETH 15m", symbol: "ETH_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
+  // Gold sessions (Twelve Data)
+  { name: "Gold 15m", symbol: "XAU/USD", timeframe: "Min15", leverage: 10, baseConfig: goldBaseConfig },
+  { name: "Gold 5m", symbol: "XAU/USD", timeframe: "Min5", leverage: 10, baseConfig: goldBaseConfig },
 ];
 
 // ============================================================================
@@ -67,15 +123,17 @@ const sessions: Array<{
 async function main() {
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║              MEXC TREND STRATEGY BOT - MULTI SESSION           ║
+║            TREND STRATEGY BOT - MULTI ASSET SESSION            ║
 ║                                                                ║
 ║  Strategy: ICT Premium/Discount Zones + MA Crossover           ║
 ║                                                                ║
 ║  Sessions:                                                     ║
-║    1. BTC_USDT 15m @ 40x                                       ║
-║    2. BTC_USDT 5m  @ 40x                                       ║
-║    3. ETH_USDT 5m  @ 20x                                       ║
-║    4. ETH_USDT 15m @ 20x                                       ║
+║    1. BTC_USDT 15m @ 40x (MEXC)                                ║
+║    2. BTC_USDT 5m  @ 40x (MEXC)                                ║
+║    3. ETH_USDT 5m  @ 20x (MEXC)                                ║
+║    4. ETH_USDT 15m @ 20x (MEXC)                                ║
+║    5. XAU/USD  15m @ 10x (Twelve Data)                         ║
+║    6. XAU/USD  5m  @ 10x (Twelve Data)                         ║
 ╚════════════════════════════════════════════════════════════════╝
   `);
 
@@ -88,16 +146,26 @@ async function main() {
     console.error("   Set DATABASE_URL in .env to enable data persistence\n");
   }
 
-  if (baseConfig.paperTrading) {
-    console.log("📝 PAPER TRADING MODE ENABLED - No real money at risk\n");
-  } else {
-    if (!baseConfig.apiKey || !baseConfig.apiSecret) {
+  // Check if any session requires live trading
+  const hasLiveSession = sessions.some(s => !s.baseConfig.paperTrading);
+  if (hasLiveSession) {
+    const hasMexcCreds = cryptoBaseConfig.apiKey && cryptoBaseConfig.apiSecret;
+    if (!hasMexcCreds) {
       console.error(
-        "ERROR: Set MEXC_API_KEY and MEXC_API_SECRET for live trading"
+        "ERROR: Set MEXC_API_KEY and MEXC_API_SECRET for live crypto trading"
       );
       process.exit(1);
     }
   }
+
+  // Check for Twelve Data API key if gold session is enabled
+  const hasGoldSession = sessions.some(s => s.baseConfig.dataSource === "twelvedata");
+  if (hasGoldSession && !process.env.TWELVEDATA_API_KEY) {
+    console.error("⚠️  TWELVEDATA_API_KEY not set - Gold session will fail");
+    console.error("   Get a free API key at https://twelvedata.com\n");
+  }
+
+  console.log("📝 PAPER TRADING MODE ENABLED - No real money at risk\n");
 
   // Create all bots with database sessions
   const bots: Array<{
@@ -109,7 +177,7 @@ async function main() {
 
   for (const session of sessions) {
     const config: Config = {
-      ...baseConfig,
+      ...session.baseConfig,
       name: session.name,
       symbol: session.symbol,
       timeframe: session.timeframe,

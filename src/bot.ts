@@ -1,4 +1,5 @@
 import { MexcClient } from "./mexc-client";
+import { TwelveDataClient } from "./twelvedata-client";
 import { Indicators } from "./indicators";
 import {
   Config,
@@ -14,12 +15,23 @@ import {
   openTrade,
   closeTrade,
   saveCandles,
+  getOpenTrade,
+  getSession,
+  updateSessionBalance,
   OpenTradeInput,
   TradeSignalInput,
 } from "./db";
 
+/**
+ * Generic data client interface for fetching candles
+ */
+export interface DataClient {
+  getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[]>;
+}
+
 export class TrendStrategyBot {
-  private client: MexcClient;
+  private dataClient: DataClient;
+  private mexcClient: MexcClient | null = null;
   private indicators: Indicators;
   private config: Config;
   private state: TradeState;
@@ -59,27 +71,102 @@ export class TrendStrategyBot {
       lossCount: 0,
     };
 
-    this.client = new MexcClient(config.apiKey, config.apiSecret);
+    // Initialize data client based on dataSource
+    if (config.dataSource === "twelvedata") {
+      const apiKey = process.env.TWELVEDATA_API_KEY;
+      if (!apiKey) {
+        throw new Error("TWELVEDATA_API_KEY is required for Twelve Data source");
+      }
+      this.dataClient = new TwelveDataClient(apiKey);
+      console.log(`${this.tag} Using Twelve Data API for ${config.symbol}`);
+    } else {
+      // Default to MEXC
+      this.mexcClient = new MexcClient(config.apiKey, config.apiSecret);
+      this.dataClient = {
+        getCandles: async (symbol: string, timeframe: string, limit: number): Promise<Candle[]> => {
+          const rawCandles = await this.mexcClient!.getCandles(symbol, timeframe, limit);
+          return rawCandles.map((c: any) => ({
+            timestamp: c.time * 1000,
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            volume: parseFloat(c.vol),
+          }));
+        },
+      };
+    }
   }
 
   async initialize(): Promise<void> {
     if (this.config.paperTrading) {
       console.log(`${this.tag} 📝 PAPER TRADING MODE - No real orders will be placed`);
+
+      // Restore state from database if we have a session
+      if (this.sessionId) {
+        await this.restoreFromDatabase();
+      }
+
       console.log(`${this.tag} Starting balance: $${this.paperState.balance.toFixed(2)}`);
     } else {
+      // Live trading only supported for MEXC
+      if (!this.mexcClient) {
+        throw new Error("Live trading is only supported with MEXC data source");
+      }
       console.log(`${this.tag} Connecting to MEXC Futures...`);
-      
+
       // Set leverage
-      await this.client.setLeverage(this.config.symbol, this.config.leverage, 2);
+      await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2);
       console.log(`${this.tag} Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
     }
 
     // Load initial candles
     await this.loadHistoricalCandles();
 
-    // Check existing position (only in live mode)
-    if (!this.config.paperTrading) {
+    // Check existing position (only in live mode with MEXC)
+    if (!this.config.paperTrading && this.mexcClient) {
       await this.syncPosition();
+    }
+  }
+
+  /**
+   * Restore paper trading state from database after restart
+   */
+  private async restoreFromDatabase(): Promise<void> {
+    if (!this.sessionId) return;
+
+    try {
+      // Restore balance from session
+      const session = await getSession(this.sessionId);
+      if (session) {
+        const currentBalance = Number(session.currentBalance);
+        const initialBalance = Number(session.initialBalance);
+
+        if (currentBalance !== initialBalance) {
+          this.paperState.balance = currentBalance;
+          this.paperState.totalPnl = currentBalance - initialBalance;
+          console.log(`${this.tag} 🔄 Restored balance from database: $${currentBalance.toFixed(2)}`);
+        }
+      }
+
+      // Restore open position
+      const openTrade = await getOpenTrade(this.sessionId);
+      if (openTrade) {
+        const side = openTrade.side === "LONG" ? "long" : "short";
+        this.state.position = {
+          side,
+          size: Number(openTrade.size),
+          entryPrice: Number(openTrade.entryPrice),
+          stopLoss: Number(openTrade.stopLoss),
+          takeProfit: Number(openTrade.takeProfit),
+        };
+        this.currentDbTradeId = openTrade.id;
+
+        console.log(`${this.tag} 🔄 Restored open position: ${side.toUpperCase()} @ $${Number(openTrade.entryPrice).toFixed(2)}`);
+        console.log(`${this.tag}    Size: ${openTrade.size} | SL: $${Number(openTrade.stopLoss).toFixed(2)} | TP: $${Number(openTrade.takeProfit).toFixed(2)}`);
+      }
+    } catch (error) {
+      console.error(`${this.tag} Failed to restore state from database:`, error);
     }
   }
 
@@ -88,23 +175,15 @@ export class TrendStrategyBot {
   // ============================================================================
 
   private async loadHistoricalCandles(): Promise<void> {
-    const rawCandles = await this.client.getCandles(
+    // Use the generic data client (works for both MEXC and Twelve Data)
+    this.candles = await this.dataClient.getCandles(
       this.config.symbol,
       this.config.timeframe,
       500
     );
 
-    // MEXC candle format: { time, open, close, high, low, vol, amount }
-    this.candles = rawCandles.map((c: any) => ({
-      timestamp: c.time * 1000, // Convert seconds to ms
-      open: parseFloat(c.open),
-      high: parseFloat(c.high),
-      low: parseFloat(c.low),
-      close: parseFloat(c.close),
-      volume: parseFloat(c.vol),
-    }));
-
-    console.log(`${this.tag} Loaded ${this.candles.length} historical candles from MEXC`);
+    const source = this.config.dataSource === "twelvedata" ? "Twelve Data" : "MEXC";
+    console.log(`${this.tag} Loaded ${this.candles.length} historical candles from ${source}`);
 
     if (this.candles.length > 0) {
       const latest = this.candles[this.candles.length - 1];
@@ -127,7 +206,8 @@ export class TrendStrategyBot {
   }
 
   private async syncPosition(): Promise<void> {
-    const positions = await this.client.getPositions(this.config.symbol);
+    if (!this.mexcClient) return;
+    const positions = await this.mexcClient.getPositions(this.config.symbol);
 
     const pos = positions.find(
       (p: any) => p.symbol === this.config.symbol && parseFloat(p.holdVol) > 0
@@ -190,21 +270,12 @@ export class TrendStrategyBot {
   }
 
   private async checkMarket(): Promise<void> {
-    // Fetch latest candles
-    const rawCandles = await this.client.getCandles(
+    // Fetch latest candles using the generic data client
+    const latestCandles = await this.dataClient.getCandles(
       this.config.symbol,
       this.config.timeframe,
       100
     );
-
-    const latestCandles = rawCandles.map((c: any) => ({
-      timestamp: c.time * 1000,
-      open: parseFloat(c.open),
-      high: parseFloat(c.high),
-      low: parseFloat(c.low),
-      close: parseFloat(c.close),
-      volume: parseFloat(c.vol),
-    }));
 
     // Check if new candle
     const lastKnown = this.candles[this.candles.length - 1];
@@ -216,8 +287,8 @@ export class TrendStrategyBot {
       await this.onNewCandle(latestNew);
     }
 
-    // Sync position state (only in live mode)
-    if (!this.config.paperTrading) {
+    // Sync position state (only in live mode with MEXC)
+    if (!this.config.paperTrading && this.mexcClient) {
       await this.syncPosition();
     }
   }
@@ -447,10 +518,10 @@ export class TrendStrategyBot {
     const maxPositionUsd = this.config.bankrollUsd * this.config.leverage;
     const cappedPositionUsd = Math.min(positionSizeUsd, maxPositionUsd);
 
-    // MEXC uses contracts, typically 1 contract = 0.0001 BTC for BTC_USDT
-    // Adjust based on contract size
-    const contractValue = 0.0001; // For BTC - check contract details
-    const size = cappedPositionUsd / entryPrice / contractValue;
+    // Use contract value from config
+    // BTC: 0.0001 (1 contract = 0.0001 BTC)
+    // Gold: 1 (1 contract = 1 oz)
+    const size = cappedPositionUsd / entryPrice / this.config.contractValue;
 
     console.log(`[Size] Risk: $${riskAmount.toFixed(2)} | SL Distance: ${(slDistancePercent * 100).toFixed(2)}%`);
     console.log(`[Size] Position: $${cappedPositionUsd.toFixed(2)} | ${Math.floor(size)} contracts`);
@@ -539,8 +610,8 @@ export class TrendStrategyBot {
       if (this.sessionId) {
         try {
           const analysis = this.analyzeMarket();
-          const riskAmount = Math.abs(entryPrice - stopLoss) * size * 0.0001;
-          const sizeUsd = size * 0.0001 * entryPrice;
+          const riskAmount = Math.abs(entryPrice - stopLoss) * size * this.config.contractValue;
+          const sizeUsd = size * this.config.contractValue * entryPrice;
 
           const tradeInput: OpenTradeInput = {
             sessionId: this.sessionId,
@@ -585,9 +656,13 @@ export class TrendStrategyBot {
         }
       }
     } else {
-      // Live trading
+      // Live trading (only supported for MEXC)
+      if (!this.mexcClient) {
+        console.error(`[Order] Live trading not supported for ${this.config.dataSource}`);
+        return;
+      }
       try {
-        const result = await this.client.placeMarketOrder(
+        const result = await this.mexcClient.placeMarketOrder(
           this.config.symbol,
           side,
           size,
@@ -667,9 +742,14 @@ export class TrendStrategyBot {
     if (this.config.paperTrading) {
       await this.closePaperPosition(currentPrice, pnl, "closed_signal");
     } else {
+      // Live trading (only supported for MEXC)
+      if (!this.mexcClient) {
+        console.error(`[Order] Live trading not supported for ${this.config.dataSource}`);
+        return;
+      }
       try {
-        await this.client.cancelAllOrders(this.config.symbol);
-        await this.client.closePosition(this.config.symbol, side, size);
+        await this.mexcClient.cancelAllOrders(this.config.symbol);
+        await this.mexcClient.closePosition(this.config.symbol, side, size);
         console.log(`[Order] Position closed`);
         this.state.position = null;
       } catch (error) {
@@ -720,6 +800,10 @@ export class TrendStrategyBot {
           exitReason: status.replace("closed_", "").toUpperCase(),
           status,
         });
+
+        // Update session balance in database for persistence
+        await updateSessionBalance(this.sessionId, this.paperState.balance);
+
         console.log(`${this.tag} 💾 Trade closure saved to database`);
         this.currentDbTradeId = null;
       } catch (error) {
@@ -739,14 +823,15 @@ export class TrendStrategyBot {
     exitPrice: number,
     size: number
   ): number {
-    // Size is in contracts, each contract = 0.0001 BTC for BTC_USDT
-    const contractValue = 0.0001;
-    const btcSize = size * contractValue;
+    // Size is in contracts, use contract value from config
+    // BTC: 0.0001 (1 contract = 0.0001 BTC)
+    // Gold: 1 (1 contract = 1 oz)
+    const assetSize = size * this.config.contractValue;
 
     if (side === "long") {
-      return (exitPrice - entryPrice) * btcSize;
+      return (exitPrice - entryPrice) * assetSize;
     } else {
-      return (entryPrice - exitPrice) * btcSize;
+      return (entryPrice - exitPrice) * assetSize;
     }
   }
 

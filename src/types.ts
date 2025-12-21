@@ -15,13 +15,18 @@ export interface Config {
   initialBalance: number; // Starting balance for paper trading
 
   // Trading pair
-  symbol: string; // e.g., "BTC_USDT" for MEXC futures
+  symbol: string; // e.g., "BTC_USDT" for MEXC futures, "XAU/USD" for gold
   timeframe: string; // "Min1", "Min5", "Min15", "Min30", "Min60", "Hour4", "Day1"
 
   // Position sizing (risk-based)
   bankrollUsd: number;
   riskPercent: number; // 0.02 = 2%
   leverage: number;
+
+  // Contract value multiplier
+  // BTC: 0.0001 (1 contract = 0.0001 BTC)
+  // Gold: 1 (1 contract = 1 oz)
+  contractValue: number;
 
   // Swing detection (from Pine Script)
   swingLength: number;
@@ -39,6 +44,9 @@ export interface Config {
   // Strategy options
   allowTrendContinuation: boolean;
   exitOnZoneChange: boolean;
+
+  // Data source
+  dataSource?: "mexc" | "twelvedata";
 }
 
 // ============================================================================
