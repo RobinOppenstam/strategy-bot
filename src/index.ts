@@ -111,9 +111,9 @@ const sessions: SessionConfig[] = [
   { name: "BTC 5m", symbol: "BTC_USDT", timeframe: "Min5", leverage: 40, baseConfig: cryptoBaseConfig },
   { name: "ETH 5m", symbol: "ETH_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
   { name: "ETH 15m", symbol: "ETH_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
-  // Gold sessions (Twelve Data)
-  { name: "Gold 15m", symbol: "XAU/USD", timeframe: "Min15", leverage: 10, baseConfig: goldBaseConfig },
-  { name: "Gold 5m", symbol: "XAU/USD", timeframe: "Min5", leverage: 10, baseConfig: goldBaseConfig },
+  // Gold sessions (Twelve Data) - DISABLED: Need valid Twelve Data API key
+  // { name: "Gold 15m", symbol: "XAU/USD", timeframe: "Min15", leverage: 10, baseConfig: goldBaseConfig },
+  // { name: "Gold 5m", symbol: "XAU/USD", timeframe: "Min5", leverage: 10, baseConfig: goldBaseConfig },
 ];
 
 // ============================================================================
