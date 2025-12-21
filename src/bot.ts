@@ -1,0 +1,790 @@
+import { MexcClient } from "./mexc-client";
+import { Indicators } from "./indicators";
+import {
+  Config,
+  Candle,
+  Position,
+  TradeState,
+  SwingPoint,
+  ZoneType,
+  PaperTradingState,
+  PaperTrade,
+} from "./types";
+import {
+  openTrade,
+  closeTrade,
+  saveCandles,
+  OpenTradeInput,
+  TradeSignalInput,
+} from "./db";
+
+export class TrendStrategyBot {
+  private client: MexcClient;
+  private indicators: Indicators;
+  private config: Config;
+  private state: TradeState;
+  private candles: Candle[] = [];
+  private pollingInterval: NodeJS.Timeout | null = null;
+  private tag: string; // Log prefix for this session
+
+  // Paper trading
+  private paperState: PaperTradingState;
+  private tradeIdCounter = 0;
+
+  // Database session
+  private sessionId: string | null;
+  private currentDbTradeId: string | null = null;
+
+  constructor(config: Config, sessionId: string | null = null) {
+    this.config = config;
+    this.sessionId = sessionId;
+    this.indicators = new Indicators();
+    this.tag = config.name ? `[${config.name}]` : "[Bot]";
+    this.state = {
+      position: null,
+      pendingOrders: [],
+      lastSwingHigh: null,
+      lastSwingLow: null,
+      rangeHigh: null,
+      rangeLow: null,
+    };
+
+    // Initialize paper trading state
+    this.paperState = {
+      balance: config.initialBalance,
+      startingBalance: config.initialBalance,
+      trades: [],
+      totalPnl: 0,
+      winCount: 0,
+      lossCount: 0,
+    };
+
+    this.client = new MexcClient(config.apiKey, config.apiSecret);
+  }
+
+  async initialize(): Promise<void> {
+    if (this.config.paperTrading) {
+      console.log(`${this.tag} 📝 PAPER TRADING MODE - No real orders will be placed`);
+      console.log(`${this.tag} Starting balance: $${this.paperState.balance.toFixed(2)}`);
+    } else {
+      console.log(`${this.tag} Connecting to MEXC Futures...`);
+      
+      // Set leverage
+      await this.client.setLeverage(this.config.symbol, this.config.leverage, 2);
+      console.log(`${this.tag} Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
+    }
+
+    // Load initial candles
+    await this.loadHistoricalCandles();
+
+    // Check existing position (only in live mode)
+    if (!this.config.paperTrading) {
+      await this.syncPosition();
+    }
+  }
+
+  // ============================================================================
+  // DATA FETCHING
+  // ============================================================================
+
+  private async loadHistoricalCandles(): Promise<void> {
+    const rawCandles = await this.client.getCandles(
+      this.config.symbol,
+      this.config.timeframe,
+      500
+    );
+
+    // MEXC candle format: { time, open, close, high, low, vol, amount }
+    this.candles = rawCandles.map((c: any) => ({
+      timestamp: c.time * 1000, // Convert seconds to ms
+      open: parseFloat(c.open),
+      high: parseFloat(c.high),
+      low: parseFloat(c.low),
+      close: parseFloat(c.close),
+      volume: parseFloat(c.vol),
+    }));
+
+    console.log(`${this.tag} Loaded ${this.candles.length} historical candles from MEXC`);
+
+    if (this.candles.length > 0) {
+      const latest = this.candles[this.candles.length - 1];
+      console.log(`${this.tag} Latest price: $${latest.close.toFixed(2)}`);
+    }
+
+    // Save candles to database
+    if (this.sessionId && this.candles.length > 0) {
+      try {
+        const savedCount = await saveCandles(
+          this.config.symbol,
+          this.config.timeframe,
+          this.candles
+        );
+        console.log(`${this.tag} 💾 Saved ${savedCount} candles to database`);
+      } catch (error) {
+        console.error(`${this.tag} Failed to save candles:`, error);
+      }
+    }
+  }
+
+  private async syncPosition(): Promise<void> {
+    const positions = await this.client.getPositions(this.config.symbol);
+
+    const pos = positions.find(
+      (p: any) => p.symbol === this.config.symbol && parseFloat(p.holdVol) > 0
+    );
+
+    if (pos) {
+      this.state.position = {
+        side: pos.positionType === 1 ? "long" : "short",
+        size: parseFloat(pos.holdVol),
+        entryPrice: parseFloat(pos.openAvgPrice),
+        stopLoss: null,
+        takeProfit: null,
+      };
+      console.log(
+        `[Bot] Existing position: ${this.state.position.side} ${this.state.position.size}`
+      );
+    }
+  }
+
+  // ============================================================================
+  // MAIN LOOP - POLLING
+  // ============================================================================
+
+  async start(): Promise<void> {
+    console.log(`${this.tag} Starting polling for ${this.config.symbol} ${this.config.timeframe}`);
+
+    // Initial check
+    await this.checkMarket();
+
+    // Poll based on timeframe
+    const intervalMs = this.getPollingInterval();
+    this.pollingInterval = setInterval(async () => {
+      try {
+        await this.checkMarket();
+      } catch (error) {
+        console.error(`[Bot] Polling error:`, error);
+      }
+    }, intervalMs);
+  }
+
+  stop(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+    console.log(`${this.tag} Stopped`);
+  }
+
+  private getPollingInterval(): number {
+    const map: Record<string, number> = {
+      "Min1": 60 * 1000,
+      "Min5": 60 * 1000,
+      "Min15": 60 * 1000,
+      "Min30": 60 * 1000,
+      "Min60": 5 * 60 * 1000,
+      "Hour4": 5 * 60 * 1000,
+      "Day1": 60 * 60 * 1000,
+    };
+    return map[this.config.timeframe] || 60 * 1000;
+  }
+
+  private async checkMarket(): Promise<void> {
+    // Fetch latest candles
+    const rawCandles = await this.client.getCandles(
+      this.config.symbol,
+      this.config.timeframe,
+      100
+    );
+
+    const latestCandles = rawCandles.map((c: any) => ({
+      timestamp: c.time * 1000,
+      open: parseFloat(c.open),
+      high: parseFloat(c.high),
+      low: parseFloat(c.low),
+      close: parseFloat(c.close),
+      volume: parseFloat(c.vol),
+    }));
+
+    // Check if new candle
+    const lastKnown = this.candles[this.candles.length - 1];
+    const latestNew = latestCandles[latestCandles.length - 1];
+
+    if (!lastKnown || latestNew.timestamp > lastKnown.timestamp) {
+      // Update candles
+      this.candles = [...this.candles.slice(-400), ...latestCandles.slice(-100)];
+      await this.onNewCandle(latestNew);
+    }
+
+    // Sync position state (only in live mode)
+    if (!this.config.paperTrading) {
+      await this.syncPosition();
+    }
+  }
+
+  async onNewCandle(candle: Candle): Promise<void> {
+    console.log(
+      `\n[${new Date(candle.timestamp).toISOString()}] Candle: O=${candle.open.toFixed(2)} H=${candle.high.toFixed(2)} L=${candle.low.toFixed(2)} C=${candle.close.toFixed(2)}`
+    );
+
+    // Paper trading: Check if TP/SL was hit during this candle
+    if (this.config.paperTrading && this.state.position) {
+      await this.checkPaperTpSl(candle);
+    }
+
+    // 1. Update swing points and zones
+    this.updateSwingPoints();
+    this.updateZones();
+
+    // 2. Calculate indicators
+    const analysis = this.analyzeMarket();
+
+    // 3. Check exits first
+    if (this.state.position) {
+      await this.checkExits(analysis);
+    }
+
+    // 4. Check entries
+    if (!this.state.position) {
+      await this.checkEntries(analysis);
+    }
+
+    // Paper trading: Print status
+    if (this.config.paperTrading) {
+      this.printPaperStatus();
+    }
+  }
+
+  /**
+   * Check if TP or SL was hit during the candle (paper trading)
+   */
+  private async checkPaperTpSl(candle: Candle): Promise<void> {
+    if (!this.state.position) return;
+
+    const { side, stopLoss, takeProfit, entryPrice, size } = this.state.position;
+
+    let exitPrice: number | null = null;
+    let exitReason: "closed_tp" | "closed_sl" | null = null;
+
+    if (side === "long") {
+      // Check SL first (worst case)
+      if (stopLoss && candle.low <= stopLoss) {
+        exitPrice = stopLoss;
+        exitReason = "closed_sl";
+      }
+      // Then check TP
+      else if (takeProfit && candle.high >= takeProfit) {
+        exitPrice = takeProfit;
+        exitReason = "closed_tp";
+      }
+    } else {
+      // Short position
+      if (stopLoss && candle.high >= stopLoss) {
+        exitPrice = stopLoss;
+        exitReason = "closed_sl";
+      } else if (takeProfit && candle.low <= takeProfit) {
+        exitPrice = takeProfit;
+        exitReason = "closed_tp";
+      }
+    }
+
+    if (exitPrice && exitReason) {
+      const pnl = this.calculatePnl(side, entryPrice, exitPrice, size);
+      await this.closePaperPosition(exitPrice, pnl, exitReason);
+    }
+  }
+
+  // ============================================================================
+  // SWING POINT DETECTION
+  // ============================================================================
+
+  private updateSwingPoints(): void {
+    const len = this.config.swingLength;
+    if (this.candles.length < len * 2 + 1) return;
+
+    const pivotIndex = this.candles.length - 1 - len;
+    const pivotCandle = this.candles[pivotIndex];
+
+    let isSwingHigh = true;
+    let isSwingLow = true;
+
+    for (let i = pivotIndex - len; i <= pivotIndex + len; i++) {
+      if (i === pivotIndex || i < 0 || i >= this.candles.length) continue;
+
+      if (this.candles[i].high >= pivotCandle.high) isSwingHigh = false;
+      if (this.candles[i].low <= pivotCandle.low) isSwingLow = false;
+    }
+
+    if (isSwingHigh) {
+      this.state.lastSwingHigh = {
+        price: pivotCandle.high,
+        timestamp: pivotCandle.timestamp,
+        index: pivotIndex,
+      };
+      console.log(`[Swing] New swing HIGH: ${pivotCandle.high}`);
+    }
+
+    if (isSwingLow) {
+      this.state.lastSwingLow = {
+        price: pivotCandle.low,
+        timestamp: pivotCandle.timestamp,
+        index: pivotIndex,
+      };
+      console.log(`[Swing] New swing LOW: ${pivotCandle.low}`);
+    }
+  }
+
+  // ============================================================================
+  // PREMIUM / DISCOUNT ZONES
+  // ============================================================================
+
+  private updateZones(): void {
+    if (!this.state.lastSwingHigh || !this.state.lastSwingLow) return;
+
+    this.state.rangeHigh = this.state.lastSwingHigh.price;
+    this.state.rangeLow = this.state.lastSwingLow.price;
+
+    const range = this.state.rangeHigh - this.state.rangeLow;
+    const equilibrium = this.state.rangeLow + range * 0.5;
+    const currentPrice = this.candles[this.candles.length - 1].close;
+    const pricePercent = ((currentPrice - this.state.rangeLow) / range) * 100;
+
+    console.log(`[Zone] Range: ${this.state.rangeLow.toFixed(2)} - ${this.state.rangeHigh.toFixed(2)}`);
+    console.log(`[Zone] Equilibrium: ${equilibrium.toFixed(2)} | Price at ${pricePercent.toFixed(1)}%`);
+  }
+
+  private getCurrentZone(): ZoneType {
+    if (!this.state.rangeHigh || !this.state.rangeLow) return "equilibrium";
+
+    const currentPrice = this.candles[this.candles.length - 1].close;
+    const range = this.state.rangeHigh - this.state.rangeLow;
+    const equilibrium = this.state.rangeLow + range * 0.5;
+
+    if (currentPrice > equilibrium) return "premium";
+    if (currentPrice < equilibrium) return "discount";
+    return "equilibrium";
+  }
+
+  // ============================================================================
+  // MARKET ANALYSIS
+  // ============================================================================
+
+  private analyzeMarket() {
+    const closes = this.candles.map((c) => c.close);
+    const highs = this.candles.map((c) => c.high);
+    const lows = this.candles.map((c) => c.low);
+
+    const sma20 = this.indicators.sma(closes, 20);
+    const currentClose = closes[closes.length - 1];
+    const currentSma = sma20[sma20.length - 1];
+
+    const fastMA = this.indicators.sma(closes, this.config.fastMAPeriod);
+    const slowMA = this.indicators.sma(closes, this.config.slowMAPeriod);
+
+    const currentFastMA = fastMA[fastMA.length - 1];
+    const currentSlowMA = slowMA[slowMA.length - 1];
+    const prevFastMA = fastMA[fastMA.length - 2];
+    const prevSlowMA = slowMA[slowMA.length - 2];
+
+    const atr = this.indicators.atr(highs, lows, closes, 14);
+    const currentATR = atr[atr.length - 1];
+
+    const zone = this.getCurrentZone();
+
+    const bullishCrossover = prevFastMA <= prevSlowMA && currentFastMA > currentSlowMA;
+    const bearishCrossover = prevFastMA >= prevSlowMA && currentFastMA < currentSlowMA;
+
+    const isBullish = currentFastMA > currentSlowMA;
+    const isBearish = currentFastMA < currentSlowMA;
+
+    return {
+      currentPrice: currentClose,
+      fastMA: currentFastMA,
+      slowMA: currentSlowMA,
+      sma20: currentSma,
+      atr: currentATR,
+      zone,
+      isBullish,
+      isBearish,
+      bullishCrossover,
+      bearishCrossover,
+    };
+  }
+
+  // ============================================================================
+  // ENTRY LOGIC
+  // ============================================================================
+
+  private async checkEntries(analysis: ReturnType<typeof this.analyzeMarket>): Promise<void> {
+    const { zone, isBullish, isBearish, bullishCrossover, bearishCrossover, atr, currentPrice } = analysis;
+
+    const longCondition =
+      zone === "discount" &&
+      (bullishCrossover || (isBullish && this.config.allowTrendContinuation));
+
+    const shortCondition =
+      zone === "premium" &&
+      (bearishCrossover || (isBearish && this.config.allowTrendContinuation));
+
+    if (longCondition) {
+      console.log(`[Signal] LONG entry signal!`);
+      await this.enterTrade("long", currentPrice, atr);
+    } else if (shortCondition) {
+      console.log(`[Signal] SHORT entry signal!`);
+      await this.enterTrade("short", currentPrice, atr);
+    }
+  }
+
+  // ============================================================================
+  // POSITION SIZING (Risk-based)
+  // ============================================================================
+
+  private calculatePositionSize(entryPrice: number, stopLoss: number): number {
+    const riskAmount = this.config.bankrollUsd * this.config.riskPercent;
+    const slDistancePercent = Math.abs(entryPrice - stopLoss) / entryPrice;
+
+    const positionSizeUsd = riskAmount / slDistancePercent;
+    const maxPositionUsd = this.config.bankrollUsd * this.config.leverage;
+    const cappedPositionUsd = Math.min(positionSizeUsd, maxPositionUsd);
+
+    // MEXC uses contracts, typically 1 contract = 0.0001 BTC for BTC_USDT
+    // Adjust based on contract size
+    const contractValue = 0.0001; // For BTC - check contract details
+    const size = cappedPositionUsd / entryPrice / contractValue;
+
+    console.log(`[Size] Risk: $${riskAmount.toFixed(2)} | SL Distance: ${(slDistancePercent * 100).toFixed(2)}%`);
+    console.log(`[Size] Position: $${cappedPositionUsd.toFixed(2)} | ${Math.floor(size)} contracts`);
+
+    return Math.floor(size);
+  }
+
+  // ============================================================================
+  // TRADE EXECUTION - ENTRY
+  // ============================================================================
+
+  private async enterTrade(
+    side: "long" | "short",
+    entryPrice: number,
+    atr: number
+  ): Promise<void> {
+    // Calculate stop loss
+    let stopLoss: number;
+    if (side === "long") {
+      stopLoss = this.state.lastSwingLow
+        ? this.state.lastSwingLow.price - this.config.slDistance
+        : entryPrice - atr * 1.5;
+    } else {
+      stopLoss = this.state.lastSwingHigh
+        ? this.state.lastSwingHigh.price + this.config.slDistance
+        : entryPrice + atr * 1.5;
+    }
+
+    // Calculate position size based on risk
+    const size = this.calculatePositionSize(entryPrice, stopLoss);
+
+    if (size <= 0) {
+      console.log(`[Trade] Position size too small, skipping trade`);
+      return;
+    }
+
+    // Calculate take profit
+    const riskAmount = Math.abs(entryPrice - stopLoss);
+    const takeProfit =
+      side === "long"
+        ? entryPrice + riskAmount * this.config.riskRewardRatio
+        : entryPrice - riskAmount * this.config.riskRewardRatio;
+
+    const riskUsd = this.config.bankrollUsd * this.config.riskPercent;
+    const rewardUsd = riskUsd * this.config.riskRewardRatio;
+
+    console.log(`\n${"=".repeat(50)}`);
+    console.log(`  ${this.config.paperTrading ? "📝 PAPER" : "🔴 LIVE"} ENTERING ${side.toUpperCase()}`);
+    console.log(`${"=".repeat(50)}`);
+    console.log(`  Entry Price:  $${entryPrice.toFixed(2)}`);
+    console.log(`  Stop Loss:    $${stopLoss.toFixed(2)} (-$${riskUsd.toFixed(2)})`);
+    console.log(`  Take Profit:  $${takeProfit.toFixed(2)} (+$${rewardUsd.toFixed(2)})`);
+    console.log(`  Size:         ${size} contracts`);
+    console.log(`  R:R:          1:${this.config.riskRewardRatio}`);
+    console.log(`${"=".repeat(50)}\n`);
+
+    if (this.config.paperTrading) {
+      // Paper trading: Just update state
+      this.tradeIdCounter++;
+      const trade: PaperTrade = {
+        id: this.tradeIdCounter,
+        side,
+        entryPrice,
+        exitPrice: null,
+        size,
+        stopLoss,
+        takeProfit,
+        entryTime: new Date(),
+        exitTime: null,
+        pnl: null,
+        status: "open",
+      };
+      this.paperState.trades.push(trade);
+
+      this.state.position = {
+        side,
+        size,
+        entryPrice,
+        stopLoss,
+        takeProfit,
+      };
+
+      console.log(`[Paper] Trade #${trade.id} opened`);
+
+      // Save to database
+      if (this.sessionId) {
+        try {
+          const analysis = this.analyzeMarket();
+          const riskAmount = Math.abs(entryPrice - stopLoss) * size * 0.0001;
+          const sizeUsd = size * 0.0001 * entryPrice;
+
+          const tradeInput: OpenTradeInput = {
+            sessionId: this.sessionId,
+            side,
+            entryPrice,
+            size,
+            sizeUsd,
+            riskAmount,
+            stopLoss,
+            takeProfit,
+            entryZone: analysis.zone,
+            fastMAAtEntry: analysis.fastMA,
+            slowMAAtEntry: analysis.slowMA,
+            atrAtEntry: analysis.atr,
+          };
+
+          const signalInput: TradeSignalInput = {
+            isCrossover: analysis.bullishCrossover || analysis.bearishCrossover,
+            isContinuation: this.config.allowTrendContinuation && (analysis.isBullish || analysis.isBearish),
+            fastMA: analysis.fastMA,
+            slowMA: analysis.slowMA,
+            atr: analysis.atr,
+            zone: analysis.zone,
+            rangeHigh: this.state.rangeHigh ?? entryPrice,
+            rangeLow: this.state.rangeLow ?? entryPrice,
+            equilibrium: ((this.state.rangeHigh ?? entryPrice) + (this.state.rangeLow ?? entryPrice)) / 2,
+            swingHighPrice: this.state.lastSwingHigh?.price,
+            swingHighTime: this.state.lastSwingHigh
+              ? new Date(this.state.lastSwingHigh.timestamp)
+              : undefined,
+            swingLowPrice: this.state.lastSwingLow?.price,
+            swingLowTime: this.state.lastSwingLow
+              ? new Date(this.state.lastSwingLow.timestamp)
+              : undefined,
+          };
+
+          const dbTrade = await openTrade(tradeInput, signalInput);
+          this.currentDbTradeId = dbTrade.id;
+          console.log(`${this.tag} 💾 Trade saved to database`);
+        } catch (error) {
+          console.error(`${this.tag} Failed to save trade:`, error);
+        }
+      }
+    } else {
+      // Live trading
+      try {
+        const result = await this.client.placeMarketOrder(
+          this.config.symbol,
+          side,
+          size,
+          this.config.leverage,
+          stopLoss,
+          takeProfit
+        );
+
+        console.log(`[Order] Entry placed:`, result);
+
+        this.state.position = {
+          side,
+          size,
+          entryPrice,
+          stopLoss,
+          takeProfit,
+        };
+      } catch (error) {
+        console.error(`[Order] Failed to enter trade:`, error);
+      }
+    }
+  }
+
+  // ============================================================================
+  // EXIT LOGIC
+  // ============================================================================
+
+  private async checkExits(analysis: ReturnType<typeof this.analyzeMarket>): Promise<void> {
+    if (!this.state.position) return;
+
+    const { zone, isBullish, isBearish } = analysis;
+    const { side } = this.state.position;
+
+    let shouldExit = false;
+    let reason = "";
+
+    if (side === "long" && isBearish) {
+      shouldExit = true;
+      reason = "Trend reversal (bearish)";
+    } else if (side === "short" && isBullish) {
+      shouldExit = true;
+      reason = "Trend reversal (bullish)";
+    }
+
+    if (this.config.exitOnZoneChange) {
+      if (side === "long" && zone === "premium") {
+        shouldExit = true;
+        reason = "Reached premium zone";
+      } else if (side === "short" && zone === "discount") {
+        shouldExit = true;
+        reason = "Reached discount zone";
+      }
+    }
+
+    if (shouldExit) {
+      console.log(`\n[Exit Signal] ${reason}`);
+      await this.closePosition(reason);
+    }
+  }
+
+  private async closePosition(reason: string): Promise<void> {
+    if (!this.state.position) return;
+
+    const { side, size, entryPrice } = this.state.position;
+    const currentPrice = this.candles[this.candles.length - 1].close;
+    const pnl = this.calculatePnl(side, entryPrice, currentPrice, size);
+
+    console.log(`\n${"=".repeat(50)}`);
+    console.log(`  ${this.config.paperTrading ? "📝 PAPER" : "🔴 LIVE"} CLOSING ${side.toUpperCase()}`);
+    console.log(`${"=".repeat(50)}`);
+    console.log(`  Reason:       ${reason}`);
+    console.log(`  Entry:        $${entryPrice.toFixed(2)}`);
+    console.log(`  Exit:         $${currentPrice.toFixed(2)}`);
+    console.log(`  P&L:          ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`);
+    console.log(`${"=".repeat(50)}\n`);
+
+    if (this.config.paperTrading) {
+      await this.closePaperPosition(currentPrice, pnl, "closed_signal");
+    } else {
+      try {
+        await this.client.cancelAllOrders(this.config.symbol);
+        await this.client.closePosition(this.config.symbol, side, size);
+        console.log(`[Order] Position closed`);
+        this.state.position = null;
+      } catch (error) {
+        console.error(`[Order] Failed to close position:`, error);
+      }
+    }
+  }
+
+  /**
+   * Close paper trading position
+   */
+  private async closePaperPosition(
+    exitPrice: number,
+    pnl: number,
+    status: "closed_tp" | "closed_sl" | "closed_signal"
+  ): Promise<void> {
+    // Update paper state
+    this.paperState.balance += pnl;
+    this.paperState.totalPnl += pnl;
+
+    if (pnl >= 0) {
+      this.paperState.winCount++;
+    } else {
+      this.paperState.lossCount++;
+    }
+
+    // Update the trade record
+    const openTradeRecord = this.paperState.trades.find((t) => t.status === "open");
+    if (openTradeRecord) {
+      openTradeRecord.exitPrice = exitPrice;
+      openTradeRecord.exitTime = new Date();
+      openTradeRecord.pnl = pnl;
+      openTradeRecord.status = status;
+    }
+
+    const emoji = status === "closed_tp" ? "🎯" : status === "closed_sl" ? "🛑" : "📊";
+    console.log(`[Paper] ${emoji} Trade closed: ${status.replace("closed_", "").toUpperCase()}`);
+    console.log(`[Paper] P&L: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`);
+
+    // Save to database
+    if (this.sessionId && this.currentDbTradeId) {
+      try {
+        const analysis = this.analyzeMarket();
+        await closeTrade({
+          tradeId: this.currentDbTradeId,
+          exitPrice,
+          exitZone: analysis.zone,
+          exitReason: status.replace("closed_", "").toUpperCase(),
+          status,
+        });
+        console.log(`${this.tag} 💾 Trade closure saved to database`);
+        this.currentDbTradeId = null;
+      } catch (error) {
+        console.error(`${this.tag} Failed to save trade closure:`, error);
+      }
+    }
+
+    this.state.position = null;
+  }
+
+  /**
+   * Calculate P&L for a trade
+   */
+  private calculatePnl(
+    side: "long" | "short",
+    entryPrice: number,
+    exitPrice: number,
+    size: number
+  ): number {
+    // Size is in contracts, each contract = 0.0001 BTC for BTC_USDT
+    const contractValue = 0.0001;
+    const btcSize = size * contractValue;
+
+    if (side === "long") {
+      return (exitPrice - entryPrice) * btcSize;
+    } else {
+      return (entryPrice - exitPrice) * btcSize;
+    }
+  }
+
+  /**
+   * Print paper trading status
+   */
+  private printPaperStatus(): void {
+    const winRate = this.paperState.winCount + this.paperState.lossCount > 0
+      ? (this.paperState.winCount / (this.paperState.winCount + this.paperState.lossCount) * 100).toFixed(1)
+      : "0.0";
+
+    const returnPct = ((this.paperState.balance - this.paperState.startingBalance) / this.paperState.startingBalance * 100).toFixed(2);
+
+    console.log(`\n┌─────────────────────────────────────────┐`);
+    console.log(`│          📊 PAPER TRADING STATUS        │`);
+    console.log(`├─────────────────────────────────────────┤`);
+    console.log(`│  Balance:     $${this.paperState.balance.toFixed(2).padStart(10)}            │`);
+    console.log(`│  Total P&L:   ${(this.paperState.totalPnl >= 0 ? "+" : "") + "$" + this.paperState.totalPnl.toFixed(2).padStart(9)}            │`);
+    console.log(`│  Return:      ${returnPct.padStart(10)}%           │`);
+    console.log(`│  Wins/Losses: ${String(this.paperState.winCount).padStart(4)}/${String(this.paperState.lossCount).padEnd(4)}               │`);
+    console.log(`│  Win Rate:    ${winRate.padStart(10)}%           │`);
+    console.log(`│  Position:    ${this.state.position ? this.state.position.side.toUpperCase().padStart(10) : "      FLAT"}            │`);
+    console.log(`└─────────────────────────────────────────┘\n`);
+  }
+
+  // ============================================================================
+  // PUBLIC API
+  // ============================================================================
+
+  getState(): TradeState {
+    return { ...this.state };
+  }
+
+  getPaperStats(): PaperTradingState {
+    return { ...this.paperState };
+  }
+
+  getTrades(): PaperTrade[] {
+    return [...this.paperState.trades];
+  }
+}

@@ -1,0 +1,372 @@
+// Prisma schema for Andre-Bot trading analytics
+// Supports Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum TradeSide {
+  LONG
+  SHORT
+}
+
+enum TradeStatus {
+  OPEN
+  CLOSED_TP       // Closed by take profit
+  CLOSED_SL       // Closed by stop loss
+  CLOSED_SIGNAL   // Closed by strategy signal
+  CLOSED_MANUAL   // Manually closed
+  CANCELLED       // Cancelled before fill
+}
+
+enum ZoneType {
+  PREMIUM
+  DISCOUNT
+  EQUILIBRIUM
+}
+
+enum Timeframe {
+  Min1
+  Min5
+  Min15
+  Min30
+  Min60
+  Hour4
+  Day1
+}
+
+enum TradingMode {
+  PAPER
+  LIVE
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ERROR
+}
+
+enum SwingType {
+  HIGH
+  LOW
+}
+
+// ============================================================================
+// SESSION MANAGEMENT
+// ============================================================================
+
+/// Trading session - groups trades by configuration for comparison
+model Session {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+
+  mode        TradingMode   @default(PAPER)
+  status      SessionStatus @default(ACTIVE)
+
+  // Market configuration
+  symbol      String
+  timeframe   Timeframe
+
+  // Position sizing
+  bankrollUsd     Decimal   @db.Decimal(18, 8)
+  riskPercent     Decimal   @db.Decimal(5, 4)
+  leverage        Int
+  riskRewardRatio Decimal   @db.Decimal(5, 2)
+
+  // Strategy parameters
+  swingLength     Int
+  slDistance      Decimal   @db.Decimal(18, 8)
+  fastMAPeriod    Int
+  slowMAPeriod    Int
+
+  // Strategy options
+  allowTrendContinuation Boolean @default(false)
+  exitOnZoneChange       Boolean @default(true)
+
+  // Paper trading state
+  initialBalance  Decimal   @db.Decimal(18, 8) @default(10000)
+  currentBalance  Decimal   @db.Decimal(18, 8) @default(10000)
+
+  // Timestamps
+  startedAt   DateTime      @default(now())
+  endedAt     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  trades          Trade[]
+  swingPoints     SwingPoint[]
+  zones           Zone[]
+  snapshots       SessionSnapshot[]
+  indicatorValues IndicatorValue[]
+
+  @@index([symbol, timeframe])
+  @@index([mode, status])
+  @@index([startedAt])
+}
+
+// ============================================================================
+// TRADE TRACKING
+// ============================================================================
+
+/// Complete trade record with full entry/exit details
+model Trade {
+  id            String      @id @default(cuid())
+
+  sessionId     String
+  session       Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  externalId    String?     // MEXC order ID for live trades
+
+  side          TradeSide
+  status        TradeStatus @default(OPEN)
+
+  // Entry details
+  entryPrice    Decimal     @db.Decimal(18, 8)
+  entryTime     DateTime    @default(now())
+  entryZone     ZoneType?
+
+  // Size and risk
+  size          Decimal     @db.Decimal(18, 8)
+  sizeUsd       Decimal     @db.Decimal(18, 8)
+  riskAmount    Decimal     @db.Decimal(18, 8)
+
+  // Stop loss and take profit
+  stopLoss      Decimal     @db.Decimal(18, 8)
+  takeProfit    Decimal     @db.Decimal(18, 8)
+
+  // Exit details (null while open)
+  exitPrice     Decimal?    @db.Decimal(18, 8)
+  exitTime      DateTime?
+  exitZone      ZoneType?
+  exitReason    String?
+
+  // P&L calculations
+  pnlUsd        Decimal?    @db.Decimal(18, 8)
+  pnlPercent    Decimal?    @db.Decimal(10, 6)
+  rMultiple     Decimal?    @db.Decimal(10, 4)
+
+  // Risk metrics
+  maxDrawdown   Decimal?    @db.Decimal(18, 8)
+  maxProfit     Decimal?    @db.Decimal(18, 8)
+
+  // Market conditions at entry
+  fastMAAtEntry Decimal?    @db.Decimal(18, 8)
+  slowMAAtEntry Decimal?    @db.Decimal(18, 8)
+  atrAtEntry    Decimal?    @db.Decimal(18, 8)
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  signal        TradeSignal?
+
+  @@index([sessionId, status])
+  @@index([sessionId, entryTime])
+  @@index([side, status])
+  @@index([entryTime])
+}
+
+/// Snapshot of signal conditions when trade was entered
+model TradeSignal {
+  id            String    @id @default(cuid())
+
+  tradeId       String    @unique
+  trade         Trade     @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  isCrossover   Boolean
+  isContinuation Boolean
+
+  fastMA        Decimal   @db.Decimal(18, 8)
+  slowMA        Decimal   @db.Decimal(18, 8)
+  atr           Decimal   @db.Decimal(18, 8)
+
+  zone          ZoneType
+  rangeHigh     Decimal   @db.Decimal(18, 8)
+  rangeLow      Decimal   @db.Decimal(18, 8)
+  equilibrium   Decimal   @db.Decimal(18, 8)
+
+  swingHighPrice    Decimal?  @db.Decimal(18, 8)
+  swingHighTime     DateTime?
+  swingLowPrice     Decimal?  @db.Decimal(18, 8)
+  swingLowTime      DateTime?
+
+  createdAt     DateTime  @default(now())
+}
+
+// ============================================================================
+// MARKET DATA
+// ============================================================================
+
+/// Candlestick data for backtesting
+model Candle {
+  id          String    @id @default(cuid())
+
+  symbol      String
+  timeframe   Timeframe
+
+  timestamp   DateTime
+  open        Decimal   @db.Decimal(18, 8)
+  high        Decimal   @db.Decimal(18, 8)
+  low         Decimal   @db.Decimal(18, 8)
+  close       Decimal   @db.Decimal(18, 8)
+  volume      Decimal   @db.Decimal(24, 8)
+
+  createdAt   DateTime  @default(now())
+
+  @@unique([symbol, timeframe, timestamp])
+  @@index([symbol, timeframe])
+  @@index([timestamp])
+}
+
+// ============================================================================
+// TECHNICAL ANALYSIS
+// ============================================================================
+
+/// Detected swing points
+model SwingPoint {
+  id          String    @id @default(cuid())
+
+  sessionId   String?
+  session     Session?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  symbol      String
+  timeframe   Timeframe
+
+  type        SwingType
+  price       Decimal   @db.Decimal(18, 8)
+  timestamp   DateTime
+  candleIndex Int
+  swingLength Int
+
+  createdAt   DateTime  @default(now())
+
+  @@index([symbol, timeframe, timestamp])
+  @@index([sessionId, timestamp])
+}
+
+/// Price zones
+model Zone {
+  id          String    @id @default(cuid())
+
+  sessionId   String
+  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  type        ZoneType
+  rangeHigh   Decimal   @db.Decimal(18, 8)
+  rangeLow    Decimal   @db.Decimal(18, 8)
+  equilibrium Decimal   @db.Decimal(18, 8)
+
+  startTime   DateTime
+  endTime     DateTime?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([sessionId, startTime])
+  @@index([type, startTime])
+}
+
+/// Indicator values for replay/analysis
+model IndicatorValue {
+  id          String    @id @default(cuid())
+
+  sessionId   String?
+  session     Session?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  symbol      String
+  timeframe   Timeframe
+  timestamp   DateTime
+
+  fastMA      Decimal?  @db.Decimal(18, 8)
+  slowMA      Decimal?  @db.Decimal(18, 8)
+  atr         Decimal?  @db.Decimal(18, 8)
+  rsi         Decimal?  @db.Decimal(10, 4)
+  adx         Decimal?  @db.Decimal(10, 4)
+  vwap        Decimal?  @db.Decimal(18, 8)
+
+  currentZone ZoneType?
+
+  createdAt   DateTime  @default(now())
+
+  @@unique([sessionId, symbol, timeframe, timestamp])
+  @@index([symbol, timeframe, timestamp])
+}
+
+// ============================================================================
+// ANALYTICS
+// ============================================================================
+
+/// Session performance snapshot
+model SessionSnapshot {
+  id            String    @id @default(cuid())
+
+  sessionId     String
+  session       Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  snapshotTime  DateTime  @default(now())
+
+  balance       Decimal   @db.Decimal(18, 8)
+  totalPnl      Decimal   @db.Decimal(18, 8)
+
+  totalTrades   Int       @default(0)
+  openTrades    Int       @default(0)
+  winCount      Int       @default(0)
+  lossCount     Int       @default(0)
+
+  winRate       Decimal   @db.Decimal(5, 4)
+  profitFactor  Decimal?  @db.Decimal(10, 4)
+  avgWin        Decimal?  @db.Decimal(18, 8)
+  avgLoss       Decimal?  @db.Decimal(18, 8)
+  largestWin    Decimal?  @db.Decimal(18, 8)
+  largestLoss   Decimal?  @db.Decimal(18, 8)
+
+  maxDrawdown       Decimal?  @db.Decimal(18, 8)
+  maxDrawdownPercent Decimal? @db.Decimal(10, 6)
+  avgRMultiple      Decimal?  @db.Decimal(10, 4)
+
+  returnPercent     Decimal   @db.Decimal(10, 6)
+
+  createdAt     DateTime  @default(now())
+
+  @@index([sessionId, snapshotTime])
+}
+
+/// Daily performance for equity curve
+model DailyPerformance {
+  id            String    @id @default(cuid())
+
+  sessionId     String?
+  symbol        String?
+
+  date          DateTime  @db.Date
+
+  startingBalance Decimal @db.Decimal(18, 8)
+  endingBalance   Decimal @db.Decimal(18, 8)
+  dailyPnl        Decimal @db.Decimal(18, 8)
+  dailyReturn     Decimal @db.Decimal(10, 6)
+
+  tradesOpened    Int     @default(0)
+  tradesClosed    Int     @default(0)
+  winsToday       Int     @default(0)
+  lossesToday     Int     @default(0)
+
+  highWaterMark   Decimal @db.Decimal(18, 8)
+  drawdown        Decimal @db.Decimal(18, 8)
+
+  createdAt       DateTime @default(now())
+
+  @@unique([sessionId, symbol, date])
+  @@index([date])
+  @@index([sessionId, date])
+}

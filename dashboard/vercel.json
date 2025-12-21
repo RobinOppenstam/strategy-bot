@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/sessions", "destination": "/api/sessions" },
+    { "source": "/api/stats", "destination": "/api/stats" },
+    { "source": "/api/trades/open", "destination": "/api/trades/open" },
+    { "source": "/api/trades/history", "destination": "/api/trades/history" }
+  ]
+}
