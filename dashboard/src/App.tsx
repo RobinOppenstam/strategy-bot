@@ -85,28 +85,33 @@ function App() {
 
   return (
     <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      <div className="space-y-8">
+      <div className="space-y-6 sm:space-y-8">
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-white">{tabTitle}</h2>
-            <p className="text-gray-400 mt-1">{tabSubtitle}</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-white">{tabTitle}</h2>
+            <p className="text-gray-400 text-sm sm:text-base mt-1">{tabSubtitle}</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-400">Total Balance</p>
-            <p className="text-2xl font-bold text-white">${totalBalance.toFixed(2)}</p>
-            <p className={`text-sm font-medium ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)} P&L
-            </p>
+          <div className="flex justify-between sm:block sm:text-right bg-gray-800 sm:bg-transparent p-3 sm:p-0 rounded-lg sm:rounded-none">
+            <div>
+              <p className="text-xs sm:text-sm text-gray-400">Total Balance</p>
+              <p className="text-lg sm:text-2xl font-bold text-white">${totalBalance.toFixed(2)}</p>
+            </div>
+            <div className="sm:mt-0">
+              <p className="text-xs sm:text-sm text-gray-400 sm:hidden">P&L</p>
+              <p className={`text-lg sm:text-sm font-medium ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}<span className="hidden sm:inline"> P&L</span>
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Session Cards Grid */}
         {filteredSessions.length > 0 ? (
-          <div className={`grid grid-cols-1 gap-4 ${
+          <div className={`grid grid-cols-1 gap-3 sm:gap-4 ${
             activeTab === 'gold'
-              ? 'md:grid-cols-1 lg:grid-cols-1 max-w-md'
-              : 'md:grid-cols-2 lg:grid-cols-4'
+              ? 'sm:grid-cols-2 lg:grid-cols-2 max-w-2xl'
+              : 'sm:grid-cols-2 lg:grid-cols-4'
           }`}>
             {filteredSessions.map((session) => (
               <SessionCard

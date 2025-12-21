@@ -102,19 +102,19 @@ export const PnLChart: React.FC<PnLChartProps> = ({ data, sessionNames, sessions
     }, [sessions]);
 
     return (
-        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+        <div className="bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-700">
             {/* Header */}
-            <div className="flex justify-between items-start mb-2">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-2">
                 <div>
-                    <h3 className="text-lg font-semibold text-white">Performance Comparison</h3>
-                    <p className="text-sm text-gray-400">Relative PNL growth across {timeFilter === '1D' ? '24h' : timeFilter === '1W' ? '7 day' : timeFilter === '1M' ? '30 day' : 'all time'} cycle</p>
+                    <h3 className="text-base sm:text-lg font-semibold text-white">Performance Comparison</h3>
+                    <p className="text-xs sm:text-sm text-gray-400">Relative PNL growth across {timeFilter === '1D' ? '24h' : timeFilter === '1W' ? '7 day' : timeFilter === '1M' ? '30 day' : 'all time'} cycle</p>
                 </div>
-                <div className="flex gap-1 bg-gray-700 rounded-lg p-1">
+                <div className="flex gap-1 bg-gray-700 rounded-lg p-1 self-start">
                     {filterButtons.map((filter) => (
                         <button
                             key={filter}
                             onClick={() => setTimeFilter(filter)}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${timeFilter === filter
+                            className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${timeFilter === filter
                                     ? 'bg-gray-900 text-white'
                                     : 'text-gray-400 hover:text-white'
                                 }`}
@@ -126,7 +126,7 @@ export const PnLChart: React.FC<PnLChartProps> = ({ data, sessionNames, sessions
             </div>
 
             {/* Chart */}
-            <div className="h-[350px] mt-4">
+            <div className="h-[250px] sm:h-[350px] mt-4">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
@@ -134,19 +134,21 @@ export const PnLChart: React.FC<PnLChartProps> = ({ data, sessionNames, sessions
                             dataKey="time"
                             stroke="#9CA3AF"
                             tickFormatter={formatXAxis}
-                            fontSize={12}
+                            fontSize={10}
                             axisLine={false}
                             tickLine={false}
                             dy={10}
+                            interval="preserveStartEnd"
                         />
                         <YAxis
                             stroke="#9CA3AF"
                             tickFormatter={formatYAxis}
-                            fontSize={12}
+                            fontSize={10}
                             axisLine={false}
                             tickLine={false}
-                            dx={-10}
+                            dx={-5}
                             domain={yDomain}
+                            width={45}
                         />
                         <Tooltip
                             contentStyle={{
@@ -165,7 +167,9 @@ export const PnLChart: React.FC<PnLChartProps> = ({ data, sessionNames, sessions
                             verticalAlign="bottom"
                             height={36}
                             iconType="circle"
-                            formatter={(value) => <span className="text-gray-400 text-sm">{value}</span>}
+                            iconSize={8}
+                            formatter={(value) => <span className="text-gray-400 text-xs sm:text-sm">{value}</span>}
+                            wrapperStyle={{ fontSize: '12px' }}
                         />
                         {sessionNames.map((name, index) => {
                             const key = name.replace(/\s+/g, '');
