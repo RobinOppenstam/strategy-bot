@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, BarChart3, History, Settings } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 
 interface DashboardLayoutProps {
     children: React.ReactNode;
@@ -20,18 +20,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
                     <a href="#" className="flex items-center space-x-3 px-4 py-3 bg-gray-700/50 text-blue-400 rounded-lg">
                         <LayoutDashboard size={20} />
                         <span className="font-medium">Overview</span>
-                    </a>
-                    <a href="#" className="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-700/30 hover:text-gray-200 rounded-lg transition-colors">
-                        <BarChart3 size={20} />
-                        <span className="font-medium">Analytics</span>
-                    </a>
-                    <a href="#" className="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-700/30 hover:text-gray-200 rounded-lg transition-colors">
-                        <History size={20} />
-                        <span className="font-medium">History</span>
-                    </a>
-                    <a href="#" className="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-700/30 hover:text-gray-200 rounded-lg transition-colors">
-                        <Settings size={20} />
-                        <span className="font-medium">Settings</span>
                     </a>
                 </nav>
 
