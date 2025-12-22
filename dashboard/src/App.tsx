@@ -113,7 +113,9 @@ function App() {
               ? 'sm:grid-cols-2 lg:grid-cols-2 max-w-2xl'
               : 'sm:grid-cols-2 lg:grid-cols-4'
           }`}>
-            {filteredSessions.map((session) => (
+            {[...filteredSessions]
+              .sort((a, b) => (Number(b.totalPnl) || 0) - (Number(a.totalPnl) || 0))
+              .map((session) => (
               <SessionCard
                 key={session.id}
                 session={session}

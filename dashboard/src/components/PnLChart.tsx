@@ -16,6 +16,8 @@ export const SESSION_COLORS: Record<string, string> = {
     'BTC 15m': '#3B82F6',  // Blue
     'ETH 5m': '#EAB308',   // Yellow
     'ETH 15m': '#EF4444',  // Red
+    'SOL 5m': '#A855F7',   // Purple
+    'SOL 15m': '#EC4899',  // Pink
     // Gold
     'Gold 15m': '#F59E0B', // Amber/Gold
     'Gold 5m': '#D97706',  // Darker Amber
