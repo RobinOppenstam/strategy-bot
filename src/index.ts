@@ -112,6 +112,8 @@ const sessions: SessionConfig[] = [
   { name: "BTC 5m", symbol: "BTC_USDT", timeframe: "Min5", leverage: 40, baseConfig: cryptoBaseConfig },
   { name: "ETH 5m", symbol: "ETH_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
   { name: "ETH 15m", symbol: "ETH_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "SOL 5m", symbol: "SOL_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "SOL 15m", symbol: "SOL_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
   // Gold sessions (Twelve Data) - DISABLED: Need valid Twelve Data API key
   // { name: "Gold 15m", symbol: "XAU/USD", timeframe: "Min15", leverage: 10, baseConfig: goldBaseConfig },
   // { name: "Gold 5m", symbol: "XAU/USD", timeframe: "Min5", leverage: 10, baseConfig: goldBaseConfig },
@@ -222,25 +224,45 @@ async function main() {
   let snapshotInterval: NodeJS.Timeout | null = null;
 
   try {
-    // Initialize all bots in parallel
+    // Initialize all bots in parallel (with retry logic)
     console.log("[Main] Initializing all sessions...\n");
-    await Promise.all(
+    const initResults = await Promise.allSettled(
       bots.map(async ({ name, bot }) => {
-        try {
-          await bot.initialize();
-          console.log(`[${name}] ✓ Initialized`);
-        } catch (error) {
-          console.error(`[${name}] ✗ Failed to initialize:`, error);
-          throw error;
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            await bot.initialize();
+            console.log(`[${name}] ✓ Initialized`);
+            return { name, success: true };
+          } catch (error) {
+            if (attempt < maxRetries) {
+              console.log(`[${name}] ⚠ Init attempt ${attempt} failed, retrying in 5s...`);
+              await new Promise(r => setTimeout(r, 5000));
+            } else {
+              console.error(`[${name}] ✗ Failed to initialize after ${maxRetries} attempts:`, error);
+              return { name, success: false };
+            }
+          }
         }
+        return { name, success: false };
       })
     );
 
-    console.log("\n[Main] All sessions initialized. Starting...\n");
+    // Filter to only successfully initialized bots
+    const successfulBots = bots.filter((_, i) => {
+      const result = initResults[i];
+      return result.status === 'fulfilled' && result.value.success;
+    });
 
-    // Start all bots in parallel
+    if (successfulBots.length === 0) {
+      throw new Error("No bots initialized successfully");
+    }
+
+    console.log(`\n[Main] ${successfulBots.length}/${bots.length} sessions initialized. Starting...\n`);
+
+    // Start only successfully initialized bots
     await Promise.all(
-      bots.map(async ({ name, bot }) => {
+      successfulBots.map(async ({ name, bot }) => {
         try {
           await bot.start();
         } catch (error) {
@@ -248,6 +270,10 @@ async function main() {
         }
       })
     );
+
+    // Update bots array to only include successful ones for the rest of the lifecycle
+    bots.length = 0;
+    bots.push(...successfulBots);
 
     console.log("[Main] All sessions running... Press Ctrl+C to stop\n");
 
