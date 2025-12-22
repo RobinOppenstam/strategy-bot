@@ -8,6 +8,7 @@ import {
   createSessionSnapshot,
   disconnectPrisma,
 } from "./db";
+import { notifyDailySummary, DailySummaryBot } from "./discord";
 
 // ============================================================================
 // BASE CONFIGURATION (for Crypto - MEXC)
@@ -250,6 +251,30 @@ async function main() {
 
     console.log("[Main] All sessions running... Press Ctrl+C to stop\n");
 
+    // Send deployment summary to Discord
+    const summaryData: DailySummaryBot[] = bots.map(({ name, bot }) => {
+      const stats = bot.getPaperStats();
+      const trades = bot.getTrades();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const todayTrades = trades.filter(t => t.exitTime && new Date(t.exitTime) >= today);
+      const todayPnl = todayTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+      const todayWins = todayTrades.filter(t => (t.pnl ?? 0) > 0).length;
+      const todayLosses = todayTrades.filter(t => (t.pnl ?? 0) < 0).length;
+
+      return {
+        name,
+        balance: stats.balance,
+        initialBalance: stats.startingBalance,
+        todayPnl,
+        wins: todayWins,
+        losses: todayLosses,
+      };
+    });
+    await notifyDailySummary(summaryData);
+    console.log("[Main] 📊 Deployment summary sent to Discord");
+
     // Start periodic snapshots
     if (dbConnected) {
       snapshotInterval = setInterval(async () => {
@@ -267,6 +292,62 @@ async function main() {
         }
       }, 5 * 60 * 1000); // Every 5 minutes
     }
+
+    // Schedule daily summary at 9am Bangkok time (UTC+7)
+    const scheduleDailySummary = () => {
+      const now = new Date();
+      const bangkokOffset = 7 * 60; // UTC+7 in minutes
+      const utcNow = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+      const bangkokNow = new Date(utcNow + bangkokOffset * 60 * 1000);
+
+      // Calculate next 9am Bangkok time
+      const next9am = new Date(bangkokNow);
+      next9am.setHours(9, 0, 0, 0);
+      if (bangkokNow.getHours() >= 9) {
+        next9am.setDate(next9am.getDate() + 1);
+      }
+
+      // Convert back to local time for setTimeout
+      const next9amUtc = next9am.getTime() - bangkokOffset * 60 * 1000;
+      const msUntil9am = next9amUtc - utcNow;
+
+      console.log(`[Main] Daily summary scheduled for 9am BKK (in ${Math.round(msUntil9am / 1000 / 60)} minutes)`);
+
+      setTimeout(async () => {
+        try {
+          const summaryData: DailySummaryBot[] = bots.map(({ name, bot }) => {
+            const stats = bot.getPaperStats();
+            const trades = bot.getTrades();
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const todayTrades = trades.filter(t => t.exitTime && new Date(t.exitTime) >= today);
+            const todayPnl = todayTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+            const todayWins = todayTrades.filter(t => (t.pnl ?? 0) > 0).length;
+            const todayLosses = todayTrades.filter(t => (t.pnl ?? 0) < 0).length;
+
+            return {
+              name,
+              balance: stats.balance,
+              initialBalance: stats.startingBalance,
+              todayPnl,
+              wins: todayWins,
+              losses: todayLosses,
+            };
+          });
+
+          await notifyDailySummary(summaryData);
+          console.log("[Main] 📊 Daily summary sent to Discord");
+        } catch (error) {
+          console.error("[Main] Failed to send daily summary:", error);
+        }
+
+        // Schedule next day
+        scheduleDailySummary();
+      }, msUntil9am);
+    };
+
+    scheduleDailySummary();
 
     process.on("SIGINT", async () => {
       console.log("\n[Main] Shutting down all sessions...");

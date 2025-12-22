@@ -29,7 +29,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                                 <div key={trade.id} className="p-4 space-y-3">
                                     <div className="flex justify-between items-center">
                                         <div className="flex items-center gap-2">
-                                            <span className="font-medium text-white">{trade.session.symbol}</span>
+                                            <span className="font-medium text-white">{trade.session.name}</span>
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                                                 trade.side === 'LONG'
                                                     ? 'bg-green-500/10 text-green-400'
@@ -70,7 +70,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                 <table className="w-full text-left text-sm text-gray-400">
                     <thead className="bg-gray-700/50 text-gray-200">
                         <tr>
-                            <th className="px-4 lg:px-6 py-3 font-medium">Symbol</th>
+                            <th className="px-4 lg:px-6 py-3 font-medium">Bot</th>
                             <th className="px-4 lg:px-6 py-3 font-medium">Side</th>
                             <th className="px-4 lg:px-6 py-3 font-medium">Entry</th>
                             <th className="px-4 lg:px-6 py-3 font-medium">Exit</th>
@@ -89,7 +89,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                         ) : (
                             trades.map((trade) => (
                                 <tr key={trade.id} className="hover:bg-gray-700/30 transition-colors">
-                                    <td className="px-4 lg:px-6 py-4 font-medium text-white">{trade.session.symbol}</td>
+                                    <td className="px-4 lg:px-6 py-4 font-medium text-white">{trade.session.name}</td>
                                     <td className="px-4 lg:px-6 py-4">
                                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${trade.side === 'LONG' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
                                             }`}>

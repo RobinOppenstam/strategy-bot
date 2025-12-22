@@ -21,6 +21,7 @@ import {
   OpenTradeInput,
   TradeSignalInput,
 } from "./db";
+import { notifyTradeOpen, notifyTradeClose } from "./discord";
 
 /**
  * Generic data client interface for fetching candles
@@ -651,6 +652,18 @@ export class TrendStrategyBot {
           const dbTrade = await openTrade(tradeInput, signalInput);
           this.currentDbTradeId = dbTrade.id;
           console.log(`${this.tag} 💾 Trade saved to database`);
+
+          // Send Discord notification
+          await notifyTradeOpen({
+            botName: this.config.name ?? this.config.symbol,
+            side,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            sizeUsd,
+            riskUsd,
+            leverage: this.config.leverage,
+          });
         } catch (error) {
           console.error(`${this.tag} Failed to save trade:`, error);
         }
@@ -806,6 +819,22 @@ export class TrendStrategyBot {
 
         console.log(`${this.tag} 💾 Trade closure saved to database`);
         this.currentDbTradeId = null;
+
+        // Send Discord notification
+        if (openTradeRecord && this.state.position) {
+          const sizeUsd = openTradeRecord.size * this.config.contractValue * openTradeRecord.entryPrice;
+          const pnlPercent = sizeUsd > 0 ? (pnl / sizeUsd) * 100 : 0;
+          await notifyTradeClose({
+            botName: this.config.name ?? this.config.symbol,
+            side: this.state.position.side,
+            entryPrice: openTradeRecord.entryPrice,
+            exitPrice,
+            pnl,
+            pnlPercent,
+            status,
+            balance: this.paperState.balance,
+          });
+        }
       } catch (error) {
         console.error(`${this.tag} Failed to save trade closure:`, error);
       }

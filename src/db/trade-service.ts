@@ -138,16 +138,20 @@ export async function closeTrade(input: CloseTradeInput): Promise<Trade> {
   }
 
   // Calculate P&L
+  // Use sizeUsd / entryPrice to get actual asset quantity (handles contractValue properly)
   const entryPrice = Number(original.entryPrice);
   const exitPrice = input.exitPrice;
-  const size = Number(original.size);
+  const sizeUsd = Number(original.sizeUsd);
   const riskAmount = Number(original.riskAmount);
+
+  // Calculate actual asset size from sizeUsd (e.g., $1000 position at $100k BTC = 0.01 BTC)
+  const assetSize = sizeUsd / entryPrice;
 
   let pnlUsd: number;
   if (original.side === TradeSide.LONG) {
-    pnlUsd = (exitPrice - entryPrice) * size;
+    pnlUsd = (exitPrice - entryPrice) * assetSize;
   } else {
-    pnlUsd = (entryPrice - exitPrice) * size;
+    pnlUsd = (entryPrice - exitPrice) * assetSize;
   }
 
   const pnlPercent = (pnlUsd / Number(original.sizeUsd)) * 100;
