@@ -24,11 +24,13 @@ function createPrismaClient(): PrismaClient {
 
   const pool = new Pool({
     connectionString,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    max: 5,  // Reduced to avoid exhausting Supabase free tier limits
+    min: 1,  // Keep at least 1 connection ready
+    idleTimeoutMillis: 60000,  // 60s idle before closing
+    connectionTimeoutMillis: 30000,  // 30s to acquire connection
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
+    allowExitOnIdle: false,  // Don't exit when pool is idle
   });
 
   pool.on('error', (err) => {

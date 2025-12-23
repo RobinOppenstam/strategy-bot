@@ -299,8 +299,8 @@ export class BacktestService {
       },
     });
 
-    // Save trades in batches
-    const BATCH_SIZE = 100;
+    // Save trades in smaller batches to avoid connection exhaustion
+    const BATCH_SIZE = 50;
     for (let i = 0; i < result.trades.length; i += BATCH_SIZE) {
       const batch = result.trades.slice(i, i + BATCH_SIZE);
       await prisma.backtestTrade.createMany({
