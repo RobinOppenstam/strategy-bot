@@ -3,6 +3,16 @@ import express from 'express';
 import cors from 'cors';
 import { prisma } from './db/prisma';
 import { backtestService } from './backtest/backtest-service';
+
+// Global error handlers to prevent silent crashes
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
