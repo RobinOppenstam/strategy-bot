@@ -166,9 +166,21 @@ export class BacktestService {
       },
     });
 
-    // Run in background
-    this.executeBacktest(backtest.id, input).catch((err) => {
+    // Run in background with proper error isolation
+    this.executeBacktest(backtest.id, input).catch(async (err) => {
       console.error("Backtest execution error:", err);
+      // Make sure to update status on any error
+      try {
+        await prisma.backtest.update({
+          where: { id: backtest.id },
+          data: {
+            status: "FAILED",
+            errorMessage: String(err),
+          },
+        });
+      } catch (updateErr) {
+        console.error("Failed to update backtest status:", updateErr);
+      }
     });
 
     return backtest.id;
@@ -178,9 +190,9 @@ export class BacktestService {
    * Execute the backtest
    */
   private async executeBacktest(backtestId: string, input: CreateBacktestInput): Promise<void> {
-    try {
-      const tf = TIMEFRAME_MAP[input.timeframe];
+    const tf = TIMEFRAME_MAP[input.timeframe];
 
+    try {
       // Fetch candles from BacktestCandle table
       const candles = await prisma.backtestCandle.findMany({
         where: {
@@ -244,13 +256,17 @@ export class BacktestService {
       await this.saveResults(backtestId, result);
     } catch (error) {
       console.error("Backtest execution error:", error);
-      await prisma.backtest.update({
-        where: { id: backtestId },
-        data: {
-          status: "FAILED",
-          errorMessage: String(error),
-        },
-      });
+      try {
+        await prisma.backtest.update({
+          where: { id: backtestId },
+          data: {
+            status: "FAILED",
+            errorMessage: String(error),
+          },
+        });
+      } catch (updateErr) {
+        console.error("Failed to update backtest status after error:", updateErr);
+      }
     }
   }
 
