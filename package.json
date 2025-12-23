@@ -14,7 +14,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "prisma generate && tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/dashboard-server.js",
+    "start:bot": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "watch": "tsc -w",
     "db:generate": "prisma generate",
