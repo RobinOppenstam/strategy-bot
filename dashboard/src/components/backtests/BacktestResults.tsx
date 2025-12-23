@@ -161,7 +161,7 @@ export const BacktestResults: React.FC<BacktestResultsProps> = ({ backtest }) =>
                                         borderRadius: '8px',
                                     }}
                                     labelStyle={{ color: '#9CA3AF' }}
-                                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Balance']}
+                                    formatter={(value) => [`$${Number(value).toFixed(2)}`, 'Balance']}
                                 />
                                 <ReferenceLine
                                     y={initialBalance}
