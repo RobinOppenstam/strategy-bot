@@ -350,8 +350,8 @@ app.delete('/api/backtests/:id', async (req, res) => {
 prisma.$connect()
   .then(() => {
     console.log('✅ Database connected successfully');
-    app.listen(PORT, () => {
-      console.log(`Dashboard API server running on http://localhost:${PORT}`);
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`Dashboard API server running on http://0.0.0.0:${PORT}`);
     });
   })
   .catch((err) => {
