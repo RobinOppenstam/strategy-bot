@@ -18,6 +18,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Get all sessions with stats
 app.get('/api/sessions', async (req, res) => {
   try {
@@ -341,6 +346,15 @@ app.delete('/api/backtests/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Dashboard API server running on http://localhost:${PORT}`);
-});
+// Test database connection on startup
+prisma.$connect()
+  .then(() => {
+    console.log('✅ Database connected successfully');
+    app.listen(PORT, () => {
+      console.log(`Dashboard API server running on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('❌ Database connection failed:', err);
+    process.exit(1);
+  });
