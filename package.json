@@ -1,5 +1,8 @@
 {
   "name": "mexc-trend-bot",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@prisma/engines",
