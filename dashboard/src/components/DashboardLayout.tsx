@@ -36,7 +36,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
             `}>
                 <div className="p-6 border-b border-gray-700 flex items-center justify-between">
                     <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                        Dick Dashboard
+                        Big Dick Dashboard
                     </h1>
                     <button
                         onClick={() => setSidebarOpen(false)}
