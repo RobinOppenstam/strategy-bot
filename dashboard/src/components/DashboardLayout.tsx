@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Bitcoin, Coins, Menu, X } from 'lucide-react';
+import { Bitcoin, Coins, Menu, X, History } from 'lucide-react';
 
-export type AssetTab = 'crypto' | 'gold';
+export type AssetTab = 'crypto' | 'gold' | 'backtests';
 
 interface DashboardLayoutProps {
     children: React.ReactNode;
@@ -68,6 +68,17 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
                     >
                         <Coins size={20} />
                         <span className="font-medium">Gold</span>
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('backtests')}
+                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                            activeTab === 'backtests'
+                                ? 'bg-gray-700/50 text-purple-400'
+                                : 'text-gray-400 hover:bg-gray-700/30 hover:text-gray-200'
+                        }`}
+                    >
+                        <History size={20} />
+                        <span className="font-medium">Backtests</span>
                     </button>
                 </nav>
 

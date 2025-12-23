@@ -207,8 +207,29 @@ model TradeSignal {
 // MARKET DATA
 // ============================================================================
 
-/// Candlestick data for backtesting
+/// Candlestick data from live trading (MEXC/TwelveData)
 model Candle {
+  id          String    @id @default(cuid())
+
+  symbol      String
+  timeframe   Timeframe
+
+  timestamp   DateTime
+  open        Decimal   @db.Decimal(18, 8)
+  high        Decimal   @db.Decimal(18, 8)
+  low         Decimal   @db.Decimal(18, 8)
+  close       Decimal   @db.Decimal(18, 8)
+  volume      Decimal   @db.Decimal(24, 8)
+
+  createdAt   DateTime  @default(now())
+
+  @@unique([symbol, timeframe, timestamp])
+  @@index([symbol, timeframe])
+  @@index([timestamp])
+}
+
+/// Historical candlestick data for backtesting (MT5 imports)
+model BacktestCandle {
   id          String    @id @default(cuid())
 
   symbol      String
@@ -367,4 +388,156 @@ model DailyPerformance {
   @@unique([sessionId, symbol, date])
   @@index([date])
   @@index([sessionId, date])
+}
+
+// ============================================================================
+// BACKTESTING
+// ============================================================================
+
+enum BacktestStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum DataSource {
+  MEXC
+  TWELVEDATA
+  MT5
+  CSV
+}
+
+/// Backtest run configuration and results
+model Backtest {
+  id              String          @id @default(cuid())
+
+  name            String
+  description     String?
+
+  // Data configuration
+  symbol          String
+  timeframe       Timeframe
+  startDate       DateTime
+  endDate         DateTime
+  dataSource      DataSource      @default(MT5)
+
+  // Strategy parameters (snapshot at run time)
+  bankrollUsd         Decimal     @db.Decimal(18, 8)
+  riskPercent         Decimal     @db.Decimal(5, 4)
+  leverage            Int
+  riskRewardRatio     Decimal     @db.Decimal(5, 2)
+  swingLength         Int
+  slDistance          Decimal     @db.Decimal(18, 8)
+  fastMAPeriod        Int
+  slowMAPeriod        Int
+  allowTrendContinuation Boolean  @default(false)
+  exitOnZoneChange    Boolean     @default(true)
+  contractValue       Decimal     @db.Decimal(18, 8)
+
+  // Execution status
+  status          BacktestStatus  @default(PENDING)
+  progress        Int             @default(0)
+  errorMessage    String?
+
+  // Timing
+  startedAt       DateTime?
+  completedAt     DateTime?
+  executionTimeMs Int?
+  candlesProcessed Int?
+
+  // Results summary (populated on completion)
+  totalTrades     Int?
+  winCount        Int?
+  lossCount       Int?
+  winRate         Decimal?        @db.Decimal(5, 4)
+  totalPnl        Decimal?        @db.Decimal(18, 8)
+  finalBalance    Decimal?        @db.Decimal(18, 8)
+  maxDrawdown     Decimal?        @db.Decimal(18, 8)
+  maxDrawdownPct  Decimal?        @db.Decimal(10, 6)
+  profitFactor    Decimal?        @db.Decimal(10, 4)
+  sharpeRatio     Decimal?        @db.Decimal(10, 4)
+  avgRMultiple    Decimal?        @db.Decimal(10, 4)
+
+  // Equity curve data (JSON array for charting)
+  equityCurve     Json?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  trades          BacktestTrade[]
+
+  @@index([symbol, timeframe])
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+/// Individual trade within a backtest
+model BacktestTrade {
+  id              String          @id @default(cuid())
+
+  backtestId      String
+  backtest        Backtest        @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+
+  tradeNumber     Int
+
+  side            TradeSide
+
+  // Entry
+  entryPrice      Decimal         @db.Decimal(18, 8)
+  entryTime       DateTime
+  entryZone       ZoneType?
+  entryReason     String?
+
+  // Exit
+  exitPrice       Decimal         @db.Decimal(18, 8)
+  exitTime        DateTime
+  exitZone        ZoneType?
+  exitReason      String
+
+  // Position details
+  size            Decimal         @db.Decimal(18, 8)
+  sizeUsd         Decimal         @db.Decimal(18, 8)
+  stopLoss        Decimal         @db.Decimal(18, 8)
+  takeProfit      Decimal         @db.Decimal(18, 8)
+
+  // P&L
+  pnlUsd          Decimal         @db.Decimal(18, 8)
+  pnlPercent      Decimal         @db.Decimal(10, 6)
+  rMultiple       Decimal         @db.Decimal(10, 4)
+
+  // Running totals at time of exit
+  runningBalance  Decimal         @db.Decimal(18, 8)
+  runningPnl      Decimal         @db.Decimal(18, 8)
+  drawdown        Decimal         @db.Decimal(18, 8)
+
+  // Market conditions at entry
+  fastMAAtEntry   Decimal?        @db.Decimal(18, 8)
+  slowMAAtEntry   Decimal?        @db.Decimal(18, 8)
+  atrAtEntry      Decimal?        @db.Decimal(18, 8)
+
+  createdAt       DateTime        @default(now())
+
+  @@index([backtestId, entryTime])
+  @@index([backtestId, tradeNumber])
+}
+
+/// Track data availability per symbol/timeframe
+model DataAvailability {
+  id              String          @id @default(cuid())
+
+  symbol          String
+  timeframe       Timeframe
+  dataSource      DataSource
+
+  earliestCandle  DateTime
+  latestCandle    DateTime
+  candleCount     Int
+
+  lastUpdated     DateTime        @default(now())
+
+  @@unique([symbol, timeframe, dataSource])
+  @@index([symbol, timeframe])
 }

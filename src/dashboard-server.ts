@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { prisma } from './db/prisma';
+import { backtestService } from './backtest/backtest-service';
 const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3001;
 
@@ -208,6 +209,126 @@ app.get('/api/trades/history', async (req, res) => {
   } catch (error) {
     console.error('Trade history error:', error);
     res.status(500).json({ error: 'Failed to fetch trade history' });
+  }
+});
+
+// ===========================================================================
+// BACKTEST ENDPOINTS
+// ===========================================================================
+
+// Get data availability for backtesting
+app.get('/api/data/availability', async (req, res) => {
+  try {
+    const availability = await backtestService.getDataAvailability();
+    res.json(availability);
+  } catch (error) {
+    console.error('Data availability error:', error);
+    res.status(500).json({ error: 'Failed to fetch data availability' });
+  }
+});
+
+// Get all backtests
+app.get('/api/backtests', async (req, res) => {
+  try {
+    const backtests = await backtestService.getAllBacktests();
+    res.json(backtests);
+  } catch (error) {
+    console.error('Backtests error:', error);
+    res.status(500).json({ error: 'Failed to fetch backtests' });
+  }
+});
+
+// Get single backtest with trades
+app.get('/api/backtests/:id', async (req, res) => {
+  try {
+    const backtest = await backtestService.getBacktest(req.params.id);
+    if (!backtest) {
+      return res.status(404).json({ error: 'Backtest not found' });
+    }
+    res.json(backtest);
+  } catch (error) {
+    console.error('Backtest error:', error);
+    res.status(500).json({ error: 'Failed to fetch backtest' });
+  }
+});
+
+// Get backtest status
+app.get('/api/backtests/:id/status', async (req, res) => {
+  try {
+    const status = await backtestService.getBacktestStatus(req.params.id);
+    if (!status) {
+      return res.status(404).json({ error: 'Backtest not found' });
+    }
+    res.json(status);
+  } catch (error) {
+    console.error('Backtest status error:', error);
+    res.status(500).json({ error: 'Failed to fetch backtest status' });
+  }
+});
+
+// Create and run a backtest
+app.post('/api/backtests', async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      symbol,
+      timeframe,
+      startDate,
+      endDate,
+      bankrollUsd,
+      riskPercent,
+      leverage,
+      riskRewardRatio,
+      swingLength,
+      slDistance,
+      fastMAPeriod,
+      slowMAPeriod,
+      allowTrendContinuation,
+      exitOnZoneChange,
+      contractValue,
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !symbol || !timeframe || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Missing required fields: name, symbol, timeframe, startDate, endDate' });
+    }
+
+    const backtestId = await backtestService.runBacktest({
+      name,
+      description,
+      symbol,
+      timeframe,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      bankrollUsd: bankrollUsd || 10000,
+      riskPercent: riskPercent || 0.02,
+      leverage: leverage || 20,
+      riskRewardRatio: riskRewardRatio || 2,
+      swingLength: swingLength || 5,
+      slDistance: slDistance || 0.001,
+      fastMAPeriod: fastMAPeriod || 9,
+      slowMAPeriod: slowMAPeriod || 21,
+      allowTrendContinuation: allowTrendContinuation || false,
+      exitOnZoneChange: exitOnZoneChange ?? true,
+      contractValue: contractValue || 1,
+    });
+
+    res.status(201).json({ id: backtestId, message: 'Backtest started' });
+  } catch (error) {
+    console.error('Create backtest error:', error);
+    res.status(500).json({ error: 'Failed to create backtest', details: String(error) });
+  }
+});
+
+// Delete a backtest
+app.delete('/api/backtests/:id', async (req, res) => {
+  try {
+    await backtestService.deleteBacktest(req.params.id);
+    res.json({ message: 'Backtest deleted' });
+  } catch (error) {
+    console.error('Delete backtest error:', error);
+    res.status(500).json({ error: 'Failed to delete backtest' });
   }
 });
 

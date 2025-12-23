@@ -4,6 +4,7 @@ import { PnLChart, SESSION_COLORS } from './components/PnLChart';
 import { SessionCard } from './components/SessionCard';
 import { OpenPositions } from './components/OpenPositions';
 import { TradeHistory } from './components/TradeHistory';
+import { BacktestsPage } from './components/backtests';
 import { getSessions, getStats, getOpenPositions, getTradeHistory } from './lib/api';
 import type { Session, Stats, Trade } from './lib/api';
 
@@ -82,6 +83,15 @@ function App() {
   const tabSubtitle = activeTab === 'gold'
     ? 'Real-time XAU/USD performance'
     : 'Real-time performance across crypto sessions';
+
+  // Show backtests page when that tab is selected
+  if (activeTab === 'backtests') {
+    return (
+      <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
+        <BacktestsPage />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
