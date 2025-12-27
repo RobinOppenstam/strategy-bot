@@ -130,9 +130,22 @@ class BacktestService {
                 progress: 0,
             },
         });
-        // Run in background
-        this.executeBacktest(backtest.id, input).catch((err) => {
+        // Run in background with proper error isolation
+        this.executeBacktest(backtest.id, input).catch(async (err) => {
             console.error("Backtest execution error:", err);
+            // Make sure to update status on any error
+            try {
+                await prisma_1.prisma.backtest.update({
+                    where: { id: backtest.id },
+                    data: {
+                        status: "FAILED",
+                        errorMessage: String(err),
+                    },
+                });
+            }
+            catch (updateErr) {
+                console.error("Failed to update backtest status:", updateErr);
+            }
         });
         return backtest.id;
     }
@@ -140,8 +153,8 @@ class BacktestService {
      * Execute the backtest
      */
     async executeBacktest(backtestId, input) {
+        const tf = TIMEFRAME_MAP[input.timeframe];
         try {
-            const tf = TIMEFRAME_MAP[input.timeframe];
             // Fetch candles from BacktestCandle table
             const candles = await prisma_1.prisma.backtestCandle.findMany({
                 where: {
@@ -201,13 +214,18 @@ class BacktestService {
         }
         catch (error) {
             console.error("Backtest execution error:", error);
-            await prisma_1.prisma.backtest.update({
-                where: { id: backtestId },
-                data: {
-                    status: "FAILED",
-                    errorMessage: String(error),
-                },
-            });
+            try {
+                await prisma_1.prisma.backtest.update({
+                    where: { id: backtestId },
+                    data: {
+                        status: "FAILED",
+                        errorMessage: String(error),
+                    },
+                });
+            }
+            catch (updateErr) {
+                console.error("Failed to update backtest status after error:", updateErr);
+            }
         }
     }
     /**
@@ -238,8 +256,8 @@ class BacktestService {
                 progress: 100,
             },
         });
-        // Save trades in batches
-        const BATCH_SIZE = 100;
+        // Save trades in smaller batches to avoid connection exhaustion
+        const BATCH_SIZE = 50;
         for (let i = 0; i < result.trades.length; i += BATCH_SIZE) {
             const batch = result.trades.slice(i, i + BATCH_SIZE);
             await prisma_1.prisma.backtestTrade.createMany({

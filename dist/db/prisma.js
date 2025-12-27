@@ -19,7 +19,19 @@ function createPrismaClient() {
                 : ["error"],
         });
     }
-    const pool = new pg_1.Pool({ connectionString });
+    const pool = new pg_1.Pool({
+        connectionString,
+        max: 5, // Reduced to avoid exhausting Supabase free tier limits
+        min: 1, // Keep at least 1 connection ready
+        idleTimeoutMillis: 60000, // 60s idle before closing
+        connectionTimeoutMillis: 30000, // 30s to acquire connection
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+        allowExitOnIdle: false, // Don't exit when pool is idle
+    });
+    pool.on('error', (err) => {
+        console.error('Unexpected pool error:', err);
+    });
     globalForPrisma.pool = pool;
     const adapter = new adapter_pg_1.PrismaPg(pool);
     return new client_1.PrismaClient({

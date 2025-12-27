@@ -8,6 +8,13 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const prisma_1 = require("./db/prisma");
 const backtest_service_1 = require("./backtest/backtest-service");
+// Global error handlers to prevent silent crashes
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
 // CORS configuration for cross-origin requests
@@ -316,8 +323,8 @@ app.delete('/api/backtests/:id', async (req, res) => {
 prisma_1.prisma.$connect()
     .then(() => {
     console.log('✅ Database connected successfully');
-    app.listen(PORT, () => {
-        console.log(`Dashboard API server running on http://localhost:${PORT}`);
+    app.listen(Number(PORT), '0.0.0.0', () => {
+        console.log(`Dashboard API server running on http://0.0.0.0:${PORT}`);
     });
 })
     .catch((err) => {

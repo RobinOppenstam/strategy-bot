@@ -75,10 +75,50 @@ class TrendStrategyBot {
             if (!this.mexcClient) {
                 throw new Error("Live trading is only supported with MEXC data source");
             }
-            console.log(`${this.tag} Connecting to MEXC Futures...`);
+            console.log(`${this.tag} 🔗 Connecting to MEXC Futures...`);
+            // Verify account connection
+            try {
+                const accountInfo = await this.mexcClient.getAccountInfo();
+                if (accountInfo) {
+                    console.log(`${this.tag} ✅ MEXC account connected successfully`);
+                    // Log available balance if present
+                    if (Array.isArray(accountInfo)) {
+                        const usdtAsset = accountInfo.find((a) => a.currency === "USDT");
+                        if (usdtAsset) {
+                            console.log(`${this.tag} 💰 USDT Balance: $${parseFloat(usdtAsset.availableBalance || usdtAsset.equity || 0).toFixed(2)}`);
+                        }
+                    }
+                }
+            }
+            catch (error) {
+                console.error(`${this.tag} ❌ Failed to connect to MEXC account:`, error);
+                throw new Error("MEXC account connection failed - check API credentials");
+            }
             // Set leverage
-            await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2);
-            console.log(`${this.tag} Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
+            try {
+                await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2);
+                console.log(`${this.tag} ⚙️  Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
+            }
+            catch (error) {
+                // Leverage might already be set, log but don't fail
+                console.log(`${this.tag} ⚠️  Leverage setting: ${error.message || error}`);
+            }
+            // Check for existing positions
+            try {
+                const positions = await this.mexcClient.getPositions(this.config.symbol);
+                if (positions && positions.length > 0) {
+                    console.log(`${this.tag} 📊 Found ${positions.length} existing position(s)`);
+                    positions.forEach((pos) => {
+                        console.log(`${this.tag}    ${pos.positionType === 1 ? 'LONG' : 'SHORT'} ${pos.holdVol} contracts @ $${parseFloat(pos.openAvgPrice).toFixed(2)}`);
+                    });
+                }
+                else {
+                    console.log(`${this.tag} 📊 No existing positions for ${this.config.symbol}`);
+                }
+            }
+            catch (error) {
+                console.log(`${this.tag} ⚠️  Could not fetch existing positions`);
+            }
         }
         // Load initial candles
         await this.loadHistoricalCandles();
@@ -130,12 +170,28 @@ class TrendStrategyBot {
     // ============================================================================
     async loadHistoricalCandles() {
         // Use the generic data client (works for both MEXC and Twelve Data)
-        this.candles = await this.dataClient.getCandles(this.config.symbol, this.config.timeframe, 500);
         const source = this.config.dataSource === "twelvedata" ? "Twelve Data" : "MEXC";
-        console.log(`${this.tag} Loaded ${this.candles.length} historical candles from ${source}`);
-        if (this.candles.length > 0) {
-            const latest = this.candles[this.candles.length - 1];
-            console.log(`${this.tag} Latest price: $${latest.close.toFixed(2)}`);
+        console.log(`${this.tag} 📡 Fetching market data from ${source}...`);
+        try {
+            this.candles = await this.dataClient.getCandles(this.config.symbol, this.config.timeframe, 500);
+        }
+        catch (error) {
+            console.error(`${this.tag} ❌ Failed to fetch market data:`, error);
+            throw new Error(`Market data fetch failed - check symbol ${this.config.symbol}`);
+        }
+        if (this.candles.length === 0) {
+            throw new Error(`No candle data received for ${this.config.symbol}`);
+        }
+        console.log(`${this.tag} ✅ Loaded ${this.candles.length} historical candles`);
+        const latest = this.candles[this.candles.length - 1];
+        const oldest = this.candles[0];
+        console.log(`${this.tag} 📈 ${this.config.symbol} @ $${latest.close.toFixed(2)}`);
+        console.log(`${this.tag} 📅 Data range: ${new Date(oldest.timestamp).toISOString().slice(0, 16)} → ${new Date(latest.timestamp).toISOString().slice(0, 16)}`);
+        // Verify candle timestamps are recent (within last hour for 5m candles)
+        const candleAge = Date.now() - latest.timestamp;
+        const maxAge = 60 * 60 * 1000; // 1 hour
+        if (candleAge > maxAge) {
+            console.log(`${this.tag} ⚠️  Latest candle is ${Math.round(candleAge / 60000)} minutes old`);
         }
         // Save candles to database
         if (this.sessionId && this.candles.length > 0) {
