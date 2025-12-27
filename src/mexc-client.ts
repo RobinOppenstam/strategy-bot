@@ -188,12 +188,15 @@ export class MexcClient {
 
   /**
    * Set leverage
+   * positionType: 1 = long, 2 = short
+   * openType: 1 = isolated, 2 = cross
    */
-  async setLeverage(symbol: string, leverage: number, openType: number = 1): Promise<any> {
+  async setLeverage(symbol: string, leverage: number, positionType: number = 1, openType: number = 1): Promise<any> {
     return this.request("POST", "/api/v1/private/position/change_leverage", {
       symbol,
       leverage,
-      openType, // 1 = isolated, 2 = cross
+      positionType,
+      openType,
     }, true);
   }
 

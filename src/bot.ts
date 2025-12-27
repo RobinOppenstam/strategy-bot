@@ -134,16 +134,16 @@ export class TrendStrategyBot {
         throw new Error("MEXC account connection failed - check API credentials");
       }
 
-      // Set leverage (try both position types - long and short)
+      // Set leverage (try both position types - long and short, isolated margin)
       try {
-        // positionType: 1 = long, 2 = short
-        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 1);
-        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2);
+        // positionType: 1 = long, 2 = short | openType: 1 = isolated, 2 = cross
+        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 1, 1); // long isolated
+        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2, 1); // short isolated
         console.log(`${this.tag} ⚙️  Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
       } catch (error: any) {
         // Leverage might already be set or not changeable, continue anyway
         console.log(`${this.tag} ⚠️  Leverage setting: ${error.message || error}`);
-        console.log(`${this.tag} ℹ️  Will use account's current leverage setting`);
+        console.log(`${this.tag} ℹ️  Continuing with account's current leverage setting`);
       }
 
       // Check for existing positions

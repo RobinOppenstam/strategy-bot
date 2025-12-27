@@ -35,8 +35,10 @@ export declare class MexcClient {
     getPositions(symbol?: string): Promise<any[]>;
     /**
      * Set leverage
+     * positionType: 1 = long, 2 = short
+     * openType: 1 = isolated, 2 = cross
      */
-    setLeverage(symbol: string, leverage: number, openType?: number): Promise<any>;
+    setLeverage(symbol: string, leverage: number, positionType?: number, openType?: number): Promise<any>;
     /**
      * Place order
      *
