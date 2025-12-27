@@ -18,13 +18,23 @@ class MexcClient {
     // ============================================================================
     // SIGNATURE
     // ============================================================================
-    sign(timestamp, params = {}) {
-        // MEXC signature: HMAC SHA256 of query string
-        const queryString = Object.keys(params)
-            .sort()
-            .map((key) => `${key}=${params[key]}`)
-            .join("&");
-        const signString = this.apiKey + timestamp + queryString;
+    sign(timestamp, params = {}, isPost = false) {
+        // MEXC signature differs for GET vs POST
+        // GET: apiKey + timestamp + sorted query string (key=value&key=value)
+        // POST: apiKey + timestamp + JSON string (no sorting needed)
+        let paramString;
+        if (isPost) {
+            // For POST: use JSON string directly
+            paramString = Object.keys(params).length > 0 ? JSON.stringify(params) : "";
+        }
+        else {
+            // For GET: sorted key=value pairs
+            paramString = Object.keys(params)
+                .sort()
+                .map((key) => `${key}=${params[key]}`)
+                .join("&");
+        }
+        const signString = this.apiKey + timestamp + paramString;
         return crypto_1.default
             .createHmac("sha256", this.apiSecret)
             .update(signString)
@@ -36,11 +46,8 @@ class MexcClient {
         const headers = {
             "Content-Type": "application/json",
         };
-        if (signed) {
-            headers["ApiKey"] = this.apiKey;
-            headers["Request-Time"] = timestamp;
-            headers["Signature"] = this.sign(timestamp, params);
-        }
+        // For POST requests, add params to query string for signature
+        let signParams = params;
         let body;
         if (method === "GET") {
             Object.entries(params).forEach(([key, value]) => {
@@ -48,7 +55,14 @@ class MexcClient {
             });
         }
         else {
+            // POST: MEXC requires params as JSON body but signature uses query string format
             body = JSON.stringify(params);
+        }
+        if (signed) {
+            const isPost = method === "POST";
+            headers["ApiKey"] = this.apiKey;
+            headers["Request-Time"] = timestamp;
+            headers["Signature"] = this.sign(timestamp, signParams, isPost);
         }
         const response = await fetch(url.toString(), {
             method,
@@ -57,7 +71,7 @@ class MexcClient {
         });
         const data = (await response.json());
         if (data.code !== 0) {
-            throw new Error(`MEXC API Error: ${data.code} - ${data.msg}`);
+            throw new Error(`MEXC API Error: ${data.code} - ${data.msg || data.message || 'unknown error'}`);
         }
         return data.data;
     }
