@@ -25,18 +25,20 @@ interface TradeClosePayload {
 }
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
+const MEXC_TRADE_WEBHOOK = process.env.MEXC_TRADE_WEBHOOK;
 
 // Discord embed colors
 const COLOR_GREEN = 5763719;
 const COLOR_RED = 15548997;
 
-async function sendWebhook(payload: object): Promise<void> {
-  if (!WEBHOOK_URL) {
+async function sendWebhook(payload: object, webhookUrl?: string): Promise<void> {
+  const url = webhookUrl || WEBHOOK_URL;
+  if (!url) {
     return;
   }
 
   try {
-    const response = await fetch(WEBHOOK_URL, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -69,7 +71,7 @@ export async function notifyTradeOpen(trade: TradeOpenPayload): Promise<void> {
     timestamp: new Date().toISOString(),
   };
 
-  await sendWebhook({ embeds: [embed] });
+  await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
 }
 
 export async function notifyTradeClose(trade: TradeClosePayload): Promise<void> {
@@ -100,7 +102,7 @@ export async function notifyTradeClose(trade: TradeClosePayload): Promise<void> 
     timestamp: new Date().toISOString(),
   };
 
-  await sendWebhook({ embeds: [embed] });
+  await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
 }
 
 export interface DailySummaryBot {
