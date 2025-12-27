@@ -155,7 +155,7 @@ async function main() {
     // Send startup notification to Discord
     const summaryData: DailySummaryBot[] = [
       {
-        name: config.name,
+        name: config.name ?? config.symbol,
         balance: config.initialBalance,
         initialBalance: config.initialBalance,
         todayPnl: 0,
@@ -216,7 +216,7 @@ async function main() {
 
           await notifyDailySummary([
             {
-              name: config.name,
+              name: config.name ?? config.symbol,
               balance: stats.balance,
               initialBalance: stats.startingBalance,
               todayPnl,
