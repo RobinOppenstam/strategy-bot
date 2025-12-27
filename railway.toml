@@ -1,7 +1,0 @@
-[build]
-builder = "nixpacks"
-buildCommand = "npm run build"
-
-[deploy]
-startCommand = "npm run start:btc-5m"
-restartPolicyType = "always"
