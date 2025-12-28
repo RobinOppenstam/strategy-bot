@@ -11,34 +11,35 @@ import {
 import { notifyDailySummary, DailySummaryBot } from "./discord";
 
 // ============================================================================
-// BTC 5M V1 003 CONFIGURATION
-// Exact parameters from backtest "btc 5m v1 003" with $100 bankroll
+// BTC 5M V1 002 CONFIGURATION
+// Exact parameters from backtest "btc 5m v1 002"
+// Using Hyperliquid exchange
 // ============================================================================
 
 const config: Config = {
   // Session name
-  name: "BTC 5m v1 003 Live",
+  name: "BTC 5m v1 002 Live",
 
-  // MEXC API CREDENTIALS
-  apiKey: process.env.MEXC_API_KEY || "",
-  apiSecret: process.env.MEXC_API_SECRET || "",
+  // API CREDENTIALS (Hyperliquid: wallet address + private key)
+  apiKey: process.env.HYPERLIQUID_WALLET_ADDRESS || "",
+  apiSecret: process.env.HYPERLIQUID_PRIVATE_KEY || "",
 
-  // PAPER TRADING MODE - Set to false for live trading
-  paperTrading: process.env.MEXC_TRADING_ENABLED !== "true",
-  initialBalance: 100,
+  // PAPER TRADING MODE - Set to true for paper trading
+  paperTrading: true,
+  initialBalance: 1000,
 
   // MARKET CONFIG
-  symbol: process.env.MEXC_SYMBOL || "BTC_USDT",
+  symbol: process.env.SYMBOL || "BTC",
   timeframe: "Min5",
-  leverage: parseInt(process.env.MEXC_LEVERAGE || "40", 10),
+  leverage: parseInt(process.env.LEVERAGE || "20", 10),
 
-  // POSITION SIZING (from backtest)
-  bankrollUsd: 100,
-  riskPercent: 0.03, // 3% risk per trade (from backtest)
+  // POSITION SIZING (from backtest v1 002)
+  bankrollUsd: 1000,
+  riskPercent: 0.02, // 2% risk per trade
 
   // CONTRACT VALUE
-  // BTC on MEXC: 1 contract = 0.0001 BTC
-  contractValue: 0.0001,
+  // Hyperliquid: 1 = 1 BTC (trades in actual BTC size)
+  contractValue: 1,
 
   // SWING DETECTION (from backtest)
   swingLength: 5,
@@ -50,15 +51,15 @@ const config: Config = {
   fastMAPeriod: 9,
   slowMAPeriod: 21,
 
-  // RISK MANAGEMENT (from backtest)
-  riskRewardRatio: 3.0, // 1:3 risk reward
+  // RISK MANAGEMENT (from backtest v1 002)
+  riskRewardRatio: 2.0, // 1:2 risk reward
 
   // STRATEGY OPTIONS (from backtest)
   allowTrendContinuation: false,
   exitOnZoneChange: true,
 
   // DATA SOURCE
-  dataSource: "mexc",
+  dataSource: "hyperliquid",
 };
 
 // ============================================================================
@@ -68,17 +69,18 @@ const config: Config = {
 async function main() {
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║            BTC 5M V1 003 - LIVE TRADING BOT                    ║
+║            BTC 5M V1 002 - LIVE TRADING BOT                    ║
 ║                                                                ║
 ║  Strategy: ICT Premium/Discount Zones + MA Crossover           ║
+║  Exchange:  Hyperliquid                                        ║
 ║                                                                ║
-║  Configuration (from backtest "btc 5m v1 003"):                ║
-║    Symbol:         BTC_USDT                                    ║
+║  Configuration (from backtest "btc 5m v1 002"):                ║
+║    Symbol:         ${config.symbol.padEnd(43)}║
 ║    Timeframe:      5 minute                                    ║
-║    Leverage:       40x                                         ║
-║    Bankroll:       $100                                        ║
-║    Risk/Trade:     3%                                          ║
-║    Risk:Reward:    1:3                                         ║
+║    Leverage:       ${config.leverage}x${" ".repeat(42 - config.leverage.toString().length)}║
+║    Bankroll:       $1000                                       ║
+║    Risk/Trade:     2%                                          ║
+║    Risk:Reward:    1:2                                         ║
 ║    Fast MA:        9                                           ║
 ║    Slow MA:        21                                          ║
 ║    Swing Length:   5                                           ║
@@ -94,15 +96,15 @@ async function main() {
     console.error("   Set DATABASE_URL in .env to enable data persistence\n");
   }
 
-  // Check for MEXC credentials if not paper trading
+  // Check for credentials if not paper trading
   if (!config.paperTrading) {
     if (!config.apiKey || !config.apiSecret) {
       console.error(
-        "ERROR: Set MEXC_API_KEY and MEXC_API_SECRET for live trading"
+        "ERROR: Set HYPERLIQUID_WALLET_ADDRESS and HYPERLIQUID_PRIVATE_KEY for live trading"
       );
       process.exit(1);
     }
-    console.log("⚠️  LIVE TRADING MODE - Real money at risk!\n");
+    console.log(`⚠️  LIVE TRADING MODE on Hyperliquid - Real money at risk!\n`);
   } else {
     console.log("📝 PAPER TRADING MODE ENABLED - No real money at risk\n");
   }
@@ -152,11 +154,14 @@ async function main() {
     await bot.start();
     console.log("[Bot] Running... Press Ctrl+C to stop\n");
 
-    // Send startup notification to Discord
+    // Send startup notification to Discord with real balance for live trading
+    const startupBalance = bot.isLiveTrading()
+      ? await bot.getRealBalance()
+      : config.initialBalance;
     const summaryData: DailySummaryBot[] = [
       {
         name: config.name ?? config.symbol,
-        balance: config.initialBalance,
+        balance: startupBalance,
         initialBalance: config.initialBalance,
         todayPnl: 0,
         wins: 0,
@@ -170,10 +175,12 @@ async function main() {
     if (dbConnected && sessionId) {
       snapshotInterval = setInterval(async () => {
         try {
-          const stats = bot.getPaperStats();
-          await updateSessionBalance(sessionId!, stats.balance);
+          const balance = bot.isLiveTrading()
+            ? await bot.getRealBalance()
+            : bot.getPaperStats().balance;
+          await updateSessionBalance(sessionId!, balance);
           await createSessionSnapshot(sessionId!);
-          console.log(`[Bot] 📸 Snapshot saved (Balance: $${stats.balance.toFixed(2)})`);
+          console.log(`[Bot] 📸 Snapshot saved (Balance: $${balance.toFixed(2)})`);
         } catch (error) {
           console.error("[Bot] Failed to save snapshot:", error);
         }
@@ -202,7 +209,9 @@ async function main() {
 
       setTimeout(async () => {
         try {
-          const stats = bot.getPaperStats();
+          const balance = bot.isLiveTrading()
+            ? await bot.getRealBalance()
+            : bot.getPaperStats().balance;
           const trades = bot.getTrades();
           const today = new Date();
           today.setHours(0, 0, 0, 0);
@@ -217,8 +226,8 @@ async function main() {
           await notifyDailySummary([
             {
               name: config.name ?? config.symbol,
-              balance: stats.balance,
-              initialBalance: stats.startingBalance,
+              balance,
+              initialBalance: config.initialBalance,
               todayPnl,
               wins: todayWins,
               losses: todayLosses,
@@ -247,18 +256,22 @@ async function main() {
 
       const stats = bot.getPaperStats();
       const trades = bot.getTrades();
+      const finalBalance = bot.isLiveTrading()
+        ? await bot.getRealBalance()
+        : stats.balance;
 
       console.log("\n" + "=".repeat(50));
-      console.log("        BTC 5M V1 003 TRADING RESULTS");
+      console.log("        BTC 5M V1 002 TRADING RESULTS");
       console.log("=".repeat(50));
       console.log(`  Symbol:           ${config.symbol} ${config.timeframe}`);
-      console.log(`  Starting Balance: $${stats.startingBalance.toFixed(2)}`);
-      console.log(`  Final Balance:    $${stats.balance.toFixed(2)}`);
+      console.log(`  Mode:             ${bot.isLiveTrading() ? "LIVE" : "PAPER"}`);
+      console.log(`  Starting Balance: $${config.initialBalance.toFixed(2)}`);
+      console.log(`  Final Balance:    $${finalBalance.toFixed(2)}`);
       console.log(
-        `  Total P&L:        ${stats.totalPnl >= 0 ? "+" : ""}$${stats.totalPnl.toFixed(2)}`
+        `  Total P&L:        ${(finalBalance - config.initialBalance) >= 0 ? "+" : ""}$${(finalBalance - config.initialBalance).toFixed(2)}`
       );
       console.log(
-        `  Return:           ${(((stats.balance - stats.startingBalance) / stats.startingBalance) * 100).toFixed(2)}%`
+        `  Return:           ${(((finalBalance - config.initialBalance) / config.initialBalance) * 100).toFixed(2)}%`
       );
       console.log(`  Total Trades:     ${trades.length}`);
       console.log(`  Wins:             ${stats.winCount}`);
@@ -269,7 +282,7 @@ async function main() {
 
       if (sessionId) {
         try {
-          await updateSessionBalance(sessionId, stats.balance);
+          await updateSessionBalance(sessionId, finalBalance);
           await createSessionSnapshot(sessionId);
           console.log(`  Database:         Session saved ✓`);
         } catch (error) {

@@ -32,6 +32,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "hyperliquid": "^1.7.7",
     "pg": "^8.16.3"
   },
   "devDependencies": {

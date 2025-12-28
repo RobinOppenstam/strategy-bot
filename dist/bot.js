@@ -789,6 +789,31 @@ class TrendStrategyBot {
     getTrades() {
         return [...this.paperState.trades];
     }
+    isLiveTrading() {
+        return !this.config.paperTrading;
+    }
+    /**
+     * Get real MEXC account balance (for live trading)
+     */
+    async getRealBalance() {
+        if (!this.mexcClient) {
+            return this.paperState.balance;
+        }
+        try {
+            const accountInfo = await this.mexcClient.getAccountInfo();
+            if (Array.isArray(accountInfo)) {
+                const usdtAsset = accountInfo.find((a) => a.currency === "USDT");
+                if (usdtAsset) {
+                    return parseFloat(usdtAsset.availableBalance || usdtAsset.equity || 0);
+                }
+            }
+            return this.paperState.balance;
+        }
+        catch (error) {
+            console.error(`${this.tag} Failed to get real balance:`, error);
+            return this.paperState.balance;
+        }
+    }
 }
 exports.TrendStrategyBot = TrendStrategyBot;
 //# sourceMappingURL=bot.js.map

@@ -1,4 +1,4 @@
-import { MexcClient } from "./mexc-client";
+import { HyperliquidClient } from "./hyperliquid-client";
 import { TwelveDataClient } from "./twelvedata-client";
 import { Indicators } from "./indicators";
 import {
@@ -30,9 +30,21 @@ export interface DataClient {
   getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[]>;
 }
 
+/**
+ * Generic exchange client interface for trading operations
+ */
+export interface ExchangeClient {
+  getAccountInfo(): Promise<any>;
+  getPositions(symbol?: string): Promise<any[]>;
+  setLeverage(symbol: string, leverage: number, positionType?: number, openType?: number): Promise<any>;
+  placeMarketOrder(symbol: string, side: "long" | "short", vol: number, leverage: number, stopLossPrice?: number, takeProfitPrice?: number): Promise<any>;
+  closePosition(symbol: string, side: "long" | "short", vol: number): Promise<any>;
+  cancelAllOrders(symbol: string): Promise<any>;
+}
+
 export class TrendStrategyBot {
   private dataClient: DataClient;
-  private mexcClient: MexcClient | null = null;
+  private exchangeClient: ExchangeClient | null = null;
   private indicators: Indicators;
   private config: Config;
   private state: TradeState;
@@ -72,7 +84,7 @@ export class TrendStrategyBot {
       lossCount: 0,
     };
 
-    // Initialize data client based on dataSource
+    // Initialize data client and exchange client based on dataSource
     if (config.dataSource === "twelvedata") {
       const apiKey = process.env.TWELVEDATA_API_KEY;
       if (!apiKey) {
@@ -80,12 +92,15 @@ export class TrendStrategyBot {
       }
       this.dataClient = new TwelveDataClient(apiKey);
       console.log(`${this.tag} Using Twelve Data API for ${config.symbol}`);
-    } else {
-      // Default to MEXC
-      this.mexcClient = new MexcClient(config.apiKey, config.apiSecret);
+    } else if (config.dataSource === "hyperliquid") {
+      // Hyperliquid
+      const privateKey = config.apiSecret; // Use apiSecret as private key
+      const walletAddress = config.apiKey; // Use apiKey as wallet address
+      const hlClient = new HyperliquidClient(privateKey, walletAddress);
+      this.exchangeClient = hlClient;
       this.dataClient = {
         getCandles: async (symbol: string, timeframe: string, limit: number): Promise<Candle[]> => {
-          const rawCandles = await this.mexcClient!.getCandles(symbol, timeframe, limit);
+          const rawCandles = await hlClient.getCandles(symbol, timeframe, limit);
           return rawCandles.map((c: any) => ({
             timestamp: c.time * 1000,
             open: parseFloat(c.open),
@@ -96,6 +111,27 @@ export class TrendStrategyBot {
           }));
         },
       };
+      console.log(`${this.tag} Using Hyperliquid API for ${config.symbol}`);
+    } else {
+      // Default to Hyperliquid if no dataSource specified
+      const privateKey = config.apiSecret;
+      const walletAddress = config.apiKey;
+      const hlClient = new HyperliquidClient(privateKey, walletAddress);
+      this.exchangeClient = hlClient;
+      this.dataClient = {
+        getCandles: async (symbol: string, timeframe: string, limit: number): Promise<Candle[]> => {
+          const rawCandles = await hlClient.getCandles(symbol, timeframe, limit);
+          return rawCandles.map((c: any) => ({
+            timestamp: c.time * 1000,
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            volume: parseFloat(c.vol),
+          }));
+        },
+      };
+      console.log(`${this.tag} Using Hyperliquid API for ${config.symbol}`);
     }
   }
 
@@ -110,35 +146,37 @@ export class TrendStrategyBot {
 
       console.log(`${this.tag} Starting balance: $${this.paperState.balance.toFixed(2)}`);
     } else {
-      // Live trading only supported for MEXC
-      if (!this.mexcClient) {
-        throw new Error("Live trading is only supported with MEXC data source");
+      // Live trading requires an exchange client
+      if (!this.exchangeClient) {
+        throw new Error("Live trading requires an exchange client (Hyperliquid)");
       }
-      console.log(`${this.tag} 🔗 Connecting to MEXC Futures...`);
+      const exchangeName = "Hyperliquid";
+      console.log(`${this.tag} 🔗 Connecting to ${exchangeName}...`);
 
       // Verify account connection
       try {
-        const accountInfo = await this.mexcClient.getAccountInfo();
+        const accountInfo = await this.exchangeClient.getAccountInfo();
         if (accountInfo) {
-          console.log(`${this.tag} ✅ MEXC account connected successfully`);
+          console.log(`${this.tag} ✅ ${exchangeName} account connected successfully`);
           // Log available balance if present
           if (Array.isArray(accountInfo)) {
-            const usdtAsset = accountInfo.find((a: any) => a.currency === "USDT");
-            if (usdtAsset) {
-              console.log(`${this.tag} 💰 USDT Balance: $${parseFloat(usdtAsset.availableBalance || usdtAsset.equity || 0).toFixed(2)}`);
+            const stableAsset = accountInfo.find((a: any) =>
+              a.currency === "USDT" || a.currency === "USDC"
+            );
+            if (stableAsset) {
+              console.log(`${this.tag} 💰 Balance: $${parseFloat(stableAsset.availableBalance || stableAsset.equity || 0).toFixed(2)}`);
             }
           }
         }
       } catch (error) {
-        console.error(`${this.tag} ❌ Failed to connect to MEXC account:`, error);
-        throw new Error("MEXC account connection failed - check API credentials");
+        console.error(`${this.tag} ❌ Failed to connect to ${exchangeName} account:`, error);
+        throw new Error(`${exchangeName} account connection failed - check API credentials`);
       }
 
-      // Set leverage (try both position types - long and short, isolated margin)
+      // Set leverage
       try {
-        // positionType: 1 = long, 2 = short | openType: 1 = isolated, 2 = cross
-        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 1, 1); // long isolated
-        await this.mexcClient.setLeverage(this.config.symbol, this.config.leverage, 2, 1); // short isolated
+        await this.exchangeClient.setLeverage(this.config.symbol, this.config.leverage, 1, 1);
+        await this.exchangeClient.setLeverage(this.config.symbol, this.config.leverage, 2, 1);
         console.log(`${this.tag} ⚙️  Leverage set to ${this.config.leverage}x for ${this.config.symbol}`);
       } catch (error: any) {
         // Leverage might already be set or not changeable, continue anyway
@@ -148,7 +186,7 @@ export class TrendStrategyBot {
 
       // Check for existing positions
       try {
-        const positions = await this.mexcClient.getPositions(this.config.symbol);
+        const positions = await this.exchangeClient.getPositions(this.config.symbol);
         if (positions && positions.length > 0) {
           console.log(`${this.tag} 📊 Found ${positions.length} existing position(s)`);
           positions.forEach((pos: any) => {
@@ -165,8 +203,8 @@ export class TrendStrategyBot {
     // Load initial candles
     await this.loadHistoricalCandles();
 
-    // Check existing position (only in live mode with MEXC)
-    if (!this.config.paperTrading && this.mexcClient) {
+    // Check existing position (only in live mode with exchange client)
+    if (!this.config.paperTrading && this.exchangeClient) {
       await this.syncPosition();
     }
   }
@@ -217,8 +255,12 @@ export class TrendStrategyBot {
   // ============================================================================
 
   private async loadHistoricalCandles(): Promise<void> {
-    // Use the generic data client (works for both MEXC and Twelve Data)
-    const source = this.config.dataSource === "twelvedata" ? "Twelve Data" : "MEXC";
+    // Use the generic data client
+    const sourceMap: Record<string, string> = {
+      twelvedata: "Twelve Data",
+      hyperliquid: "Hyperliquid",
+    };
+    const source = sourceMap[this.config.dataSource || "hyperliquid"] || "Hyperliquid";
     console.log(`${this.tag} 📡 Fetching market data from ${source}...`);
 
     try {
@@ -266,11 +308,11 @@ export class TrendStrategyBot {
   }
 
   private async syncPosition(): Promise<void> {
-    if (!this.mexcClient) return;
-    const positions = await this.mexcClient.getPositions(this.config.symbol);
+    if (!this.exchangeClient) return;
+    const positions = await this.exchangeClient.getPositions(this.config.symbol);
 
     const pos = positions.find(
-      (p: any) => p.symbol === this.config.symbol && parseFloat(p.holdVol) > 0
+      (p: any) => parseFloat(p.holdVol) > 0
     );
 
     if (pos) {
@@ -347,8 +389,8 @@ export class TrendStrategyBot {
       await this.onNewCandle(latestNew);
     }
 
-    // Sync position state (only in live mode with MEXC)
-    if (!this.config.paperTrading && this.mexcClient) {
+    // Sync position state (only in live mode with exchange client)
+    if (!this.config.paperTrading && this.exchangeClient) {
       await this.syncPosition();
     }
   }
@@ -728,13 +770,13 @@ export class TrendStrategyBot {
         }
       }
     } else {
-      // Live trading (only supported for MEXC)
-      if (!this.mexcClient) {
-        console.error(`[Order] Live trading not supported for ${this.config.dataSource}`);
+      // Live trading
+      if (!this.exchangeClient) {
+        console.error(`[Order] Live trading requires an exchange client`);
         return;
       }
       try {
-        const result = await this.mexcClient.placeMarketOrder(
+        const result = await this.exchangeClient.placeMarketOrder(
           this.config.symbol,
           side,
           size,
@@ -814,14 +856,14 @@ export class TrendStrategyBot {
     if (this.config.paperTrading) {
       await this.closePaperPosition(currentPrice, pnl, "closed_signal");
     } else {
-      // Live trading (only supported for MEXC)
-      if (!this.mexcClient) {
-        console.error(`[Order] Live trading not supported for ${this.config.dataSource}`);
+      // Live trading
+      if (!this.exchangeClient) {
+        console.error(`[Order] Live trading requires an exchange client`);
         return;
       }
       try {
-        await this.mexcClient.cancelAllOrders(this.config.symbol);
-        await this.mexcClient.closePosition(this.config.symbol, side, size);
+        await this.exchangeClient.cancelAllOrders(this.config.symbol);
+        await this.exchangeClient.closePosition(this.config.symbol, side, size);
         console.log(`[Order] Position closed`);
         this.state.position = null;
       } catch (error) {
@@ -959,5 +1001,34 @@ export class TrendStrategyBot {
 
   getTrades(): PaperTrade[] {
     return [...this.paperState.trades];
+  }
+
+  isLiveTrading(): boolean {
+    return !this.config.paperTrading;
+  }
+
+  /**
+   * Get real exchange account balance (for live trading)
+   */
+  async getRealBalance(): Promise<number> {
+    if (!this.exchangeClient) {
+      return this.paperState.balance;
+    }
+    try {
+      const accountInfo = await this.exchangeClient.getAccountInfo();
+      if (Array.isArray(accountInfo)) {
+        // Support USDC (Hyperliquid)
+        const stableAsset = accountInfo.find((a: any) =>
+          a.currency === "USDC"
+        );
+        if (stableAsset) {
+          return parseFloat(stableAsset.availableBalance || stableAsset.equity || 0);
+        }
+      }
+      return this.paperState.balance;
+    } catch (error) {
+      console.error(`${this.tag} Failed to get real balance:`, error);
+      return this.paperState.balance;
+    }
   }
 }

@@ -103,6 +103,6 @@ async function notifyDailySummary(bots) {
         ],
         timestamp: new Date().toISOString(),
     };
-    await sendWebhook({ embeds: [embed] });
+    await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
 }
 //# sourceMappingURL=discord.js.map

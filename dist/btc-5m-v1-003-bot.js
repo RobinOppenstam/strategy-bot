@@ -5,25 +5,25 @@ const bot_1 = require("./bot");
 const db_1 = require("./db");
 const discord_1 = require("./discord");
 // ============================================================================
-// BTC 5M V1 003 CONFIGURATION
-// Exact parameters from backtest "btc 5m v1 003" with $100 bankroll
+// BTC 5M V1 002 CONFIGURATION
+// Exact parameters from backtest "btc 5m v1 002"
 // ============================================================================
 const config = {
     // Session name
-    name: "BTC 5m v1 003 Live",
+    name: "BTC 5m v1 002 Live",
     // MEXC API CREDENTIALS
     apiKey: process.env.MEXC_API_KEY || "",
     apiSecret: process.env.MEXC_API_SECRET || "",
     // PAPER TRADING MODE - Set to false for live trading
     paperTrading: process.env.MEXC_TRADING_ENABLED !== "true",
-    initialBalance: 100,
+    initialBalance: 30,
     // MARKET CONFIG
     symbol: process.env.MEXC_SYMBOL || "BTC_USDT",
     timeframe: "Min5",
-    leverage: parseInt(process.env.MEXC_LEVERAGE || "40", 10),
-    // POSITION SIZING (from backtest)
-    bankrollUsd: 100,
-    riskPercent: 0.03, // 3% risk per trade (from backtest)
+    leverage: parseInt(process.env.MEXC_LEVERAGE || "20", 10),
+    // POSITION SIZING (from backtest v1 002)
+    bankrollUsd: 30,
+    riskPercent: 0.02, // 2% risk per trade
     // CONTRACT VALUE
     // BTC on MEXC: 1 contract = 0.0001 BTC
     contractValue: 0.0001,
@@ -34,8 +34,8 @@ const config = {
     // MOVING AVERAGES (from backtest)
     fastMAPeriod: 9,
     slowMAPeriod: 21,
-    // RISK MANAGEMENT (from backtest)
-    riskRewardRatio: 3.0, // 1:3 risk reward
+    // RISK MANAGEMENT (from backtest v1 002)
+    riskRewardRatio: 2.0, // 1:2 risk reward
     // STRATEGY OPTIONS (from backtest)
     allowTrendContinuation: false,
     exitOnZoneChange: true,
@@ -48,17 +48,17 @@ const config = {
 async function main() {
     console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║            BTC 5M V1 003 - LIVE TRADING BOT                    ║
+║            BTC 5M V1 002 - LIVE TRADING BOT                    ║
 ║                                                                ║
 ║  Strategy: ICT Premium/Discount Zones + MA Crossover           ║
 ║                                                                ║
-║  Configuration (from backtest "btc 5m v1 003"):                ║
+║  Configuration (from backtest "btc 5m v1 002"):                ║
 ║    Symbol:         BTC_USDT                                    ║
 ║    Timeframe:      5 minute                                    ║
-║    Leverage:       40x                                         ║
-║    Bankroll:       $100                                        ║
-║    Risk/Trade:     3%                                          ║
-║    Risk:Reward:    1:3                                         ║
+║    Leverage:       20x                                         ║
+║    Bankroll:       $30                                         ║
+║    Risk/Trade:     2%                                          ║
+║    Risk:Reward:    1:2                                         ║
 ║    Fast MA:        9                                           ║
 ║    Slow MA:        21                                          ║
 ║    Swing Length:   5                                           ║
@@ -124,11 +124,14 @@ async function main() {
         // Start the bot
         await bot.start();
         console.log("[Bot] Running... Press Ctrl+C to stop\n");
-        // Send startup notification to Discord
+        // Send startup notification to Discord with real balance for live trading
+        const startupBalance = bot.isLiveTrading()
+            ? await bot.getRealBalance()
+            : config.initialBalance;
         const summaryData = [
             {
                 name: config.name ?? config.symbol,
-                balance: config.initialBalance,
+                balance: startupBalance,
                 initialBalance: config.initialBalance,
                 todayPnl: 0,
                 wins: 0,
@@ -141,10 +144,12 @@ async function main() {
         if (dbConnected && sessionId) {
             snapshotInterval = setInterval(async () => {
                 try {
-                    const stats = bot.getPaperStats();
-                    await (0, db_1.updateSessionBalance)(sessionId, stats.balance);
+                    const balance = bot.isLiveTrading()
+                        ? await bot.getRealBalance()
+                        : bot.getPaperStats().balance;
+                    await (0, db_1.updateSessionBalance)(sessionId, balance);
                     await (0, db_1.createSessionSnapshot)(sessionId);
-                    console.log(`[Bot] 📸 Snapshot saved (Balance: $${stats.balance.toFixed(2)})`);
+                    console.log(`[Bot] 📸 Snapshot saved (Balance: $${balance.toFixed(2)})`);
                 }
                 catch (error) {
                     console.error("[Bot] Failed to save snapshot:", error);
@@ -167,7 +172,9 @@ async function main() {
             console.log(`[Bot] Daily summary scheduled for 9am BKK (in ${Math.round(msUntil9am / 1000 / 60)} minutes)`);
             setTimeout(async () => {
                 try {
-                    const stats = bot.getPaperStats();
+                    const balance = bot.isLiveTrading()
+                        ? await bot.getRealBalance()
+                        : bot.getPaperStats().balance;
                     const trades = bot.getTrades();
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -178,8 +185,8 @@ async function main() {
                     await (0, discord_1.notifyDailySummary)([
                         {
                             name: config.name ?? config.symbol,
-                            balance: stats.balance,
-                            initialBalance: stats.startingBalance,
+                            balance,
+                            initialBalance: config.initialBalance,
                             todayPnl,
                             wins: todayWins,
                             losses: todayLosses,
@@ -203,21 +210,25 @@ async function main() {
             bot.stop();
             const stats = bot.getPaperStats();
             const trades = bot.getTrades();
+            const finalBalance = bot.isLiveTrading()
+                ? await bot.getRealBalance()
+                : stats.balance;
             console.log("\n" + "=".repeat(50));
-            console.log("        BTC 5M V1 003 TRADING RESULTS");
+            console.log("        BTC 5M V1 002 TRADING RESULTS");
             console.log("=".repeat(50));
             console.log(`  Symbol:           ${config.symbol} ${config.timeframe}`);
-            console.log(`  Starting Balance: $${stats.startingBalance.toFixed(2)}`);
-            console.log(`  Final Balance:    $${stats.balance.toFixed(2)}`);
-            console.log(`  Total P&L:        ${stats.totalPnl >= 0 ? "+" : ""}$${stats.totalPnl.toFixed(2)}`);
-            console.log(`  Return:           ${(((stats.balance - stats.startingBalance) / stats.startingBalance) * 100).toFixed(2)}%`);
+            console.log(`  Mode:             ${bot.isLiveTrading() ? "LIVE" : "PAPER"}`);
+            console.log(`  Starting Balance: $${config.initialBalance.toFixed(2)}`);
+            console.log(`  Final Balance:    $${finalBalance.toFixed(2)}`);
+            console.log(`  Total P&L:        ${(finalBalance - config.initialBalance) >= 0 ? "+" : ""}$${(finalBalance - config.initialBalance).toFixed(2)}`);
+            console.log(`  Return:           ${(((finalBalance - config.initialBalance) / config.initialBalance) * 100).toFixed(2)}%`);
             console.log(`  Total Trades:     ${trades.length}`);
             console.log(`  Wins:             ${stats.winCount}`);
             console.log(`  Losses:           ${stats.lossCount}`);
             console.log(`  Win Rate:         ${trades.length > 0 ? ((stats.winCount / trades.length) * 100).toFixed(1) : 0}%`);
             if (sessionId) {
                 try {
-                    await (0, db_1.updateSessionBalance)(sessionId, stats.balance);
+                    await (0, db_1.updateSessionBalance)(sessionId, finalBalance);
                     await (0, db_1.createSessionSnapshot)(sessionId);
                     console.log(`  Database:         Session saved ✓`);
                 }

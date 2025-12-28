@@ -59,4 +59,9 @@ export declare class TrendStrategyBot {
     getState(): TradeState;
     getPaperStats(): PaperTradingState;
     getTrades(): PaperTrade[];
+    isLiveTrading(): boolean;
+    /**
+     * Get real MEXC account balance (for live trading)
+     */
+    getRealBalance(): Promise<number>;
 }

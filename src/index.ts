@@ -11,13 +11,13 @@ import {
 import { notifyDailySummary, DailySummaryBot } from "./discord";
 
 // ============================================================================
-// BASE CONFIGURATION (for Crypto - MEXC)
+// BASE CONFIGURATION (for Crypto - Hyperliquid)
 // ============================================================================
 
 const cryptoBaseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
-  // MEXC API CREDENTIALS
-  apiKey: process.env.MEXC_API_KEY || "",
-  apiSecret: process.env.MEXC_API_SECRET || "",
+  // Hyperliquid API CREDENTIALS
+  apiKey: process.env.HYPERLIQUID_WALLET_ADDRESS || "",
+  apiSecret: process.env.HYPERLIQUID_PRIVATE_KEY || "",
 
   // PAPER TRADING MODE
   paperTrading: true,
@@ -28,8 +28,8 @@ const cryptoBaseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
   riskPercent: 0.02, // 2% risk per trade
 
   // CONTRACT VALUE
-  // BTC/ETH on MEXC: 1 contract = 0.0001 of the asset
-  contractValue: 0.0001,
+  // Hyperliquid: 1 = 1 BTC (trades in actual BTC size)
+  contractValue: 1,
 
   // SWING DETECTION
   swingLength: 10,
@@ -49,7 +49,7 @@ const cryptoBaseConfig: Omit<Config, "symbol" | "timeframe" | "leverage"> = {
   exitOnZoneChange: true,
 
   // DATA SOURCE
-  dataSource: "mexc",
+  dataSource: "hyperliquid",
 };
 
 // ============================================================================
@@ -107,13 +107,13 @@ interface SessionConfig {
 }
 
 const sessions: SessionConfig[] = [
-  // Crypto sessions (MEXC)
-  { name: "BTC 15m", symbol: "BTC_USDT", timeframe: "Min15", leverage: 40, baseConfig: cryptoBaseConfig },
-  { name: "BTC 5m", symbol: "BTC_USDT", timeframe: "Min5", leverage: 40, baseConfig: cryptoBaseConfig },
-  { name: "ETH 5m", symbol: "ETH_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
-  { name: "ETH 15m", symbol: "ETH_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
-  { name: "SOL 5m", symbol: "SOL_USDT", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
-  { name: "SOL 15m", symbol: "SOL_USDT", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
+  // Crypto sessions (Hyperliquid)
+  { name: "BTC 15m", symbol: "BTC", timeframe: "Min15", leverage: 40, baseConfig: cryptoBaseConfig },
+  { name: "BTC 5m", symbol: "BTC", timeframe: "Min5", leverage: 40, baseConfig: cryptoBaseConfig },
+  { name: "ETH 5m", symbol: "ETH", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "ETH 15m", symbol: "ETH", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "SOL 5m", symbol: "SOL", timeframe: "Min5", leverage: 20, baseConfig: cryptoBaseConfig },
+  { name: "SOL 15m", symbol: "SOL", timeframe: "Min15", leverage: 20, baseConfig: cryptoBaseConfig },
   // Gold sessions (Twelve Data) - DISABLED: Need valid Twelve Data API key
   // { name: "Gold 15m", symbol: "XAU/USD", timeframe: "Min15", leverage: 10, baseConfig: goldBaseConfig },
   // { name: "Gold 5m", symbol: "XAU/USD", timeframe: "Min5", leverage: 10, baseConfig: goldBaseConfig },
@@ -131,12 +131,12 @@ async function main() {
 ║  Strategy: ICT Premium/Discount Zones + MA Crossover           ║
 ║                                                                ║
 ║  Sessions:                                                     ║
-║    1. BTC_USDT 15m @ 40x (MEXC)                                ║
-║    2. BTC_USDT 5m  @ 40x (MEXC)                                ║
-║    3. ETH_USDT 5m  @ 20x (MEXC)                                ║
-║    4. ETH_USDT 15m @ 20x (MEXC)                                ║
-║    5. XAU/USD  15m @ 10x (Twelve Data)                         ║
-║    6. XAU/USD  5m  @ 10x (Twelve Data)                         ║
+║    1. BTC 15m @ 40x (Hyperliquid)                              ║
+║    2. BTC 5m  @ 40x (Hyperliquid)                              ║
+║    3. ETH 5m  @ 20x (Hyperliquid)                              ║
+║    4. ETH 15m @ 20x (Hyperliquid)                              ║
+║    5. SOL 5m  @ 20x (Hyperliquid)                              ║
+║    6. SOL 15m @ 20x (Hyperliquid)                              ║
 ╚════════════════════════════════════════════════════════════════╝
   `);
 
@@ -152,10 +152,10 @@ async function main() {
   // Check if any session requires live trading
   const hasLiveSession = sessions.some(s => !s.baseConfig.paperTrading);
   if (hasLiveSession) {
-    const hasMexcCreds = cryptoBaseConfig.apiKey && cryptoBaseConfig.apiSecret;
-    if (!hasMexcCreds) {
+    const hasHyperliquidCreds = cryptoBaseConfig.apiKey && cryptoBaseConfig.apiSecret;
+    if (!hasHyperliquidCreds) {
       console.error(
-        "ERROR: Set MEXC_API_KEY and MEXC_API_SECRET for live crypto trading"
+        "ERROR: Set HYPERLIQUID_WALLET_ADDRESS and HYPERLIQUID_PRIVATE_KEY for live crypto trading"
       );
       process.exit(1);
     }

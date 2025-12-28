@@ -46,7 +46,7 @@ export interface Config {
   exitOnZoneChange: boolean;
 
   // Data source
-  dataSource?: "mexc" | "twelvedata";
+  dataSource?: "hyperliquid" | "twelvedata";
 }
 
 // ============================================================================
@@ -122,36 +122,3 @@ export interface PaperTrade {
   status: "open" | "closed_tp" | "closed_sl" | "closed_signal";
 }
 
-// ============================================================================
-// MEXC API TYPES
-// ============================================================================
-
-export interface MexcOrderResponse {
-  orderId: string;
-  symbol: string;
-  side: number; // 1 = open long, 2 = close short, 3 = open short, 4 = close long
-  price: string;
-  vol: string;
-  leverage: number;
-  orderType: number;
-  state: number; // 1 = pending, 2 = filled, 3 = partially filled, 4 = cancelled
-}
-
-export interface MexcPosition {
-  positionId: string;
-  symbol: string;
-  holdVol: string; // Position size
-  openAvgPrice: string;
-  positionType: number; // 1 = long, 2 = short
-  leverage: number;
-  unrealisedPnl: string;
-}
-
-export interface MexcCandle {
-  time: number;
-  open: string;
-  close: string;
-  high: string;
-  low: string;
-  vol: string;
-}
