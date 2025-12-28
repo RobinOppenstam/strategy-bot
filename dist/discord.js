@@ -7,7 +7,7 @@ exports.notifyTradeOpen = notifyTradeOpen;
 exports.notifyTradeClose = notifyTradeClose;
 exports.notifyDailySummary = notifyDailySummary;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
-const MEXC_TRADE_WEBHOOK = process.env.MEXC_TRADE_WEBHOOK;
+const TRADE_WEBHOOK = process.env.TRADE_WEBHOOK;
 // Discord embed colors
 const COLOR_GREEN = 5763719;
 const COLOR_RED = 15548997;
@@ -47,7 +47,7 @@ async function notifyTradeOpen(trade) {
         ],
         timestamp: new Date().toISOString(),
     };
-    await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
+    await sendWebhook({ embeds: [embed] }, TRADE_WEBHOOK);
 }
 async function notifyTradeClose(trade) {
     const isWin = trade.pnl >= 0;
@@ -73,7 +73,7 @@ async function notifyTradeClose(trade) {
         ],
         timestamp: new Date().toISOString(),
     };
-    await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
+    await sendWebhook({ embeds: [embed] }, TRADE_WEBHOOK);
 }
 async function notifyDailySummary(bots) {
     const totalBalance = bots.reduce((sum, b) => sum + b.balance, 0);
@@ -103,6 +103,6 @@ async function notifyDailySummary(bots) {
         ],
         timestamp: new Date().toISOString(),
     };
-    await sendWebhook({ embeds: [embed] }, MEXC_TRADE_WEBHOOK);
+    await sendWebhook({ embeds: [embed] }, TRADE_WEBHOOK);
 }
 //# sourceMappingURL=discord.js.map

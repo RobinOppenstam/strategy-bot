@@ -41,7 +41,6 @@ export declare function getAllSessionsWithStats(): Promise<({
     };
 } & {
     symbol: string;
-    leverage: number;
     name: string;
     id: string;
     description: string | null;
@@ -50,6 +49,7 @@ export declare function getAllSessionsWithStats(): Promise<({
     timeframe: import("@prisma/client").$Enums.Timeframe;
     bankrollUsd: import("@prisma/client/runtime/client").Decimal;
     riskPercent: import("@prisma/client/runtime/client").Decimal;
+    leverage: number;
     riskRewardRatio: import("@prisma/client/runtime/client").Decimal;
     swingLength: number;
     slDistance: import("@prisma/client/runtime/client").Decimal;

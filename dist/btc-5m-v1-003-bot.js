@@ -7,26 +7,27 @@ const discord_1 = require("./discord");
 // ============================================================================
 // BTC 5M V1 002 CONFIGURATION
 // Exact parameters from backtest "btc 5m v1 002"
+// Using Hyperliquid exchange
 // ============================================================================
 const config = {
     // Session name
     name: "BTC 5m v1 002 Live",
-    // MEXC API CREDENTIALS
-    apiKey: process.env.MEXC_API_KEY || "",
-    apiSecret: process.env.MEXC_API_SECRET || "",
-    // PAPER TRADING MODE - Set to false for live trading
-    paperTrading: process.env.MEXC_TRADING_ENABLED !== "true",
-    initialBalance: 30,
+    // API CREDENTIALS (Hyperliquid: wallet address + private key)
+    apiKey: process.env.HYPERLIQUID_WALLET_ADDRESS || "",
+    apiSecret: process.env.HYPERLIQUID_PRIVATE_KEY || "",
+    // PAPER TRADING MODE - Set to true for paper trading
+    paperTrading: true,
+    initialBalance: 1000,
     // MARKET CONFIG
-    symbol: process.env.MEXC_SYMBOL || "BTC_USDT",
+    symbol: process.env.SYMBOL || "BTC",
     timeframe: "Min5",
-    leverage: parseInt(process.env.MEXC_LEVERAGE || "20", 10),
+    leverage: parseInt(process.env.LEVERAGE || "20", 10),
     // POSITION SIZING (from backtest v1 002)
-    bankrollUsd: 30,
+    bankrollUsd: 1000,
     riskPercent: 0.02, // 2% risk per trade
     // CONTRACT VALUE
-    // BTC on MEXC: 1 contract = 0.0001 BTC
-    contractValue: 0.0001,
+    // Hyperliquid: 1 = 1 BTC (trades in actual BTC size)
+    contractValue: 1,
     // SWING DETECTION (from backtest)
     swingLength: 5,
     // STOP LOSS SETTINGS (from backtest)
@@ -40,7 +41,7 @@ const config = {
     allowTrendContinuation: false,
     exitOnZoneChange: true,
     // DATA SOURCE
-    dataSource: "mexc",
+    dataSource: "hyperliquid",
 };
 // ============================================================================
 // MAIN
@@ -51,12 +52,13 @@ async function main() {
 ║            BTC 5M V1 002 - LIVE TRADING BOT                    ║
 ║                                                                ║
 ║  Strategy: ICT Premium/Discount Zones + MA Crossover           ║
+║  Exchange:  Hyperliquid                                        ║
 ║                                                                ║
 ║  Configuration (from backtest "btc 5m v1 002"):                ║
-║    Symbol:         BTC_USDT                                    ║
+║    Symbol:         ${config.symbol.padEnd(43)}║
 ║    Timeframe:      5 minute                                    ║
-║    Leverage:       20x                                         ║
-║    Bankroll:       $30                                         ║
+║    Leverage:       ${config.leverage}x${" ".repeat(42 - config.leverage.toString().length)}║
+║    Bankroll:       $1000                                       ║
 ║    Risk/Trade:     2%                                          ║
 ║    Risk:Reward:    1:2                                         ║
 ║    Fast MA:        9                                           ║
@@ -70,13 +72,13 @@ async function main() {
         console.error("⚠️  Database connection failed - running without persistence");
         console.error("   Set DATABASE_URL in .env to enable data persistence\n");
     }
-    // Check for MEXC credentials if not paper trading
+    // Check for credentials if not paper trading
     if (!config.paperTrading) {
         if (!config.apiKey || !config.apiSecret) {
-            console.error("ERROR: Set MEXC_API_KEY and MEXC_API_SECRET for live trading");
+            console.error("ERROR: Set HYPERLIQUID_WALLET_ADDRESS and HYPERLIQUID_PRIVATE_KEY for live trading");
             process.exit(1);
         }
-        console.log("⚠️  LIVE TRADING MODE - Real money at risk!\n");
+        console.log(`⚠️  LIVE TRADING MODE on Hyperliquid - Real money at risk!\n`);
     }
     else {
         console.log("📝 PAPER TRADING MODE ENABLED - No real money at risk\n");

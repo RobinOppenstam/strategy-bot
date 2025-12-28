@@ -5,9 +5,20 @@ import { Config, Candle, TradeState, PaperTradingState, PaperTrade } from "./typ
 export interface DataClient {
     getCandles(symbol: string, timeframe: string, limit: number): Promise<Candle[]>;
 }
+/**
+ * Generic exchange client interface for trading operations
+ */
+export interface ExchangeClient {
+    getAccountInfo(): Promise<any>;
+    getPositions(symbol?: string): Promise<any[]>;
+    setLeverage(symbol: string, leverage: number, positionType?: number, openType?: number): Promise<any>;
+    placeMarketOrder(symbol: string, side: "long" | "short", vol: number, leverage: number, stopLossPrice?: number, takeProfitPrice?: number): Promise<any>;
+    closePosition(symbol: string, side: "long" | "short", vol: number): Promise<any>;
+    cancelAllOrders(symbol: string): Promise<any>;
+}
 export declare class TrendStrategyBot {
     private dataClient;
-    private mexcClient;
+    private exchangeClient;
     private indicators;
     private config;
     private state;
@@ -61,7 +72,7 @@ export declare class TrendStrategyBot {
     getTrades(): PaperTrade[];
     isLiveTrading(): boolean;
     /**
-     * Get real MEXC account balance (for live trading)
+     * Get real exchange account balance (for live trading)
      */
     getRealBalance(): Promise<number>;
 }

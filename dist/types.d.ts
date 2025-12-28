@@ -17,7 +17,7 @@ export interface Config {
     riskRewardRatio: number;
     allowTrendContinuation: boolean;
     exitOnZoneChange: boolean;
-    dataSource?: "mexc" | "twelvedata";
+    dataSource?: "hyperliquid" | "twelvedata";
 }
 export interface Candle {
     timestamp: number;
@@ -68,31 +68,4 @@ export interface PaperTrade {
     exitTime: Date | null;
     pnl: number | null;
     status: "open" | "closed_tp" | "closed_sl" | "closed_signal";
-}
-export interface MexcOrderResponse {
-    orderId: string;
-    symbol: string;
-    side: number;
-    price: string;
-    vol: string;
-    leverage: number;
-    orderType: number;
-    state: number;
-}
-export interface MexcPosition {
-    positionId: string;
-    symbol: string;
-    holdVol: string;
-    openAvgPrice: string;
-    positionType: number;
-    leverage: number;
-    unrealisedPnl: string;
-}
-export interface MexcCandle {
-    time: number;
-    open: string;
-    close: string;
-    high: string;
-    low: string;
-    vol: string;
 }
