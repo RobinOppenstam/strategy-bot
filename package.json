@@ -1,5 +1,5 @@
 {
-  "name": "mexc-trend-bot",
+  "name": "andre-bot",
   "engines": {
     "node": ">=20.19.0"
   },
@@ -10,11 +10,12 @@
     ]
   },
   "version": "1.0.0",
-  "description": "MEXC Futures trading bot implementing ICT Premium/Discount zones with MA crossover strategy",
+  "description": "Hyperliquid trading bot implementing ICT Premium/Discount zones with MA crossover strategy",
   "main": "dist/index.js",
   "scripts": {
     "build": "prisma generate && tsc",
-    "start": "node dist/dashboard-server.js",
+    "start": "node dist/btc-5m-v1-003-bot.js",
+    "start:dashboard": "node dist/dashboard-server.js",
     "start:bot": "node dist/index.js",
     "start:btc-5m": "node dist/btc-5m-v1-003-bot.js",
     "dev": "ts-node src/index.ts",
